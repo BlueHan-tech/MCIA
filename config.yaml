@@ -1,0 +1,274 @@
+﻿# ============================================================================
+# 缁熶竴瓒呭弬鏁伴厤缃?
+# ============================================================================
+
+# --- 鏁版嵁璺緞 ---
+paths:
+  db2: "D:\\code\\data\\Ninapro-DB2"
+  db3: "D:\\code\\data\\Ninapro-DB3"
+  output: "outputs"
+  checkpoints: "D:\\code\\A_clean\\A_king-main\\checkpoints"
+  metadata_csv: "D:\\code\\A_clean\\A_king-main\\db2_metadata.csv"
+# paths:
+#   db2: "/home/zyh/Ninapro-DB2"
+#   db3: "/home/zyh/Ninapro-DB3"
+#   output: "/home/zyh/A-King/outputs"
+#   checkpoints: "/home/zyh/A-King/checkpoints"
+#   metadata_csv: "/home/zyh/A-King/db2_metadata.csv"
+
+# --- 淇″彿棰勫鐞?---
+signal:
+  orig_fs: 2000         # 鍘熷閲囨牱鐜?
+  target_fs: 200        # 鐩爣閲囨牱鐜?
+  n_channels: 12        # EMG 閫氶亾鏁?
+  window_size: 256       # 鍒嗘绐楀彛闀垮害锛堥噰鏍风偣锛?
+  stride: 128            # 婊戝姩姝ラ暱
+
+# --- Level 0: DB3 direct-regression baselines ---
+level0_baseline:
+  # Only DB3 subjects with usable glove ground truth will be included.
+  db3_subjects: [1,2,3,4,5,6,7,8,9,10,11]
+  train_ratio: 0.60
+  val_ratio: 0.20
+  test_ratio: 0.20
+  random_seed: 42
+
+  # Clean vs degraded direct regression. No MAE, transfer, anatomy-aware mask, or structural loss.
+  models: ["tcn", "bilstm"]   # optional: add "cnn_gru"
+  channel_mask_ratio: 0.20
+  temporal_patch_mask_ratio: 0.15
+  patch_size: 8
+
+  hidden_dim: 64
+  n_layers: 4
+  bilstm_hidden_dim: 128
+  bilstm_layers: 2
+  cnn_gru_layers: 2
+  kernel_size: 3
+  n_angle_channels: 10  # Fixed Key10 target; mapping is in utils/kinematic_target.py.
+  model_dropout: 0.1
+
+  batch_size: 64
+  learning_rate: 0.001
+  num_epochs: 100
+  patience: 20
+  lr_patience: 5
+  lr_factor: 0.5
+  results_path: "D:\\code\\A_clean\\A_king-main\\outputs\\level0_db3_baselines\\results.json"
+
+# --- 瀹為獙涓€: MCIA 琛ュ叏妯″瀷 (Multi-Channel Imputation with Axial-attention) ---
+# ============================================================
+# 鎵╁ぇ妯″瀷瀹归噺锛堝熀鍑?test corr_masked=0.325锛岀洰鏍?>0.40锛?
+# 鏋舵瀯锛欴=192, L=6, H=6 (head_dim=32), FFN=384 鈫?~2.8M params (~2.5脳)
+# ?????????activation/synergy ?? CH-MISS ????
+# ============================================================
+exp1_mcia:
+  patch_size: 8
+  embed_dim: 192
+  n_layers: 6
+  n_heads: 6
+  ffn_dim: 384
+  model_dropout: 0.1
+
+  # Low-dimensional muscle-synergy modulation before waveform recovery.
+  # This adds a tiny identity-initialized bottleneck, not a new output target.
+  use_synergy_bottleneck: false
+  n_synergies: 6
+  synergy_gate_scale: 0.5
+  synergy_dropout: 0.1
+
+  # EMG activation-level supervision. These losses are computed from the
+  # predicted waveform only; they add no extra model head and use no kinematic labels.
+  envelope_loss_weight: 0.2
+  patch_rms_loss_weight: 0.1
+  envelope_kernel_size: 25       # 125 ms at 200 Hz, forced odd in code
+  patch_rms_size: 8              # align RMS energy with P=8 patch tokens
+
+  num_domains: 2            # 0=healthy DB2, 1=amputee DB3
+  spatial_depth: 6          # legacy alias of n_layers
+  num_heads: 6              # legacy alias of n_heads
+  mlp_ratio: 2.0
+  pool_depth: 1
+  num_summary_tokens: 8
+
+  pool_mode: "strided_conv"
+  upsample_mode: "conv_transpose"
+  fuse_mode: "none"          # 鏈€浼橈細涓嶇敤 DynamicFiLMFuse
+  temporal_depth: 0          # 鏈€浼橈細涓嶇敤 TimeRefiner / CrossChannelAttention
+  use_mask_swap: true
+  use_group_bias: true
+  use_spatial_mixer: false   # 鏈€浼橈細涓嶇敤 SpatialMixer
+  group_indices:
+    flexor: [0, 1, 2, 3, 8]
+    extensor: [4, 5, 6, 7, 9]
+    upper_arm: [10, 11]
+
+  batch_size: 64
+  learning_rate: 0.0001
+  num_epochs: 120
+  patience: 120
+  lr_patience: 15
+  lr_factor: 0.5
+  min_lr: 0.0000005
+  log_every_epochs: 20
+
+  mask_strategy: "scenario_mix"
+  warmup_epochs: 8
+  val_scenario: "s3"
+  debug_mask_contract: true
+
+  scenario_weights:
+    s1_transient:   0.20
+    s2_one_channel: 0.40
+    s3_two_channels: 0.40
+
+
+  min_alive_per_group:
+    flexor:    3
+    extensor:  3
+    upper_arm: 1
+
+  scenario_params:
+    s1:
+      n_blocks: [1, 2]
+      block_len_patches: [2, 4]
+    s2:
+      n_blocks: [1, 2]
+      block_len_patches: [2, 4]
+    s3:
+      n_blocks: [1, 2]
+      block_len_patches: [2, 4]
+
+  use_structural_loss: true
+  alpha_peak: 1.5             # 闄嶄綆 peak锛屽噺杞?CH-MISS 閫氶亾姊害鏀惧ぇ
+  alpha_env: 0.2              # RMS 鍖呯粶
+  alpha_grad: 0.3             # 涓?corr 瑙ｈ€︼細杩囬珮浼氬帇骞抽娴嬨€佷笌 Pearson 鍐茬獊
+  alpha_known: 0.05           # 宸茬煡鍖烘湁鍥炲～淇濊瘉锛屾棤闇€寮虹洃鐫?
+  alpha_boundary: 0.2         # 杈圭晫骞虫粦
+  alpha_synergy: 0.05
+  alpha_corr: 1.2             # 鎻愰珮 Corr 鏉冮噸锛屽鎶楀潎鍊奸櫡闃?
+  alpha_detrend: 0.8          # 鍘诲潎鍊?MSE锛屼笌 corr 鍗忓悓
+  beta_smooth: 0.0
+
+  use_personal_condition: false
+  cfg_dropout_prob: 0.0
+  guidance_scale: 0.0
+
+  # 杞婚噺瀹為獙
+#  train_subjects: [1, 2, 3, 4, 5, 6]
+#  val_subjects: [29]
+#  test_subjects: [31]
+
+  # 鍏ㄩ噺瀹為獙
+  train_subjects: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28]
+  val_subjects: [29,30,31,32]
+  test_subjects: [33,34,35,36,37,38,39,40]
+
+  run_db2_test_finetune: false
+  finetune_epochs: 25
+  finetune_patience: 8
+  finetune_lr_spatial: 0.00001
+  finetune_lr_refiner: 0.0002
+
+# --- 鍙鍖栦綋妫€ ---
+# 杞婚噺瀹為獙锛歟very_epochs: 5, num_report_samples: 6, worst_k: 3
+# 鍏ㄩ噺瀹為獙锛歟very_epochs: 10, num_report_samples: 12, worst_k: 6
+viz:
+  enable: true
+  every_epochs: 10
+  num_report_samples: 12
+  worst_k: 6
+  stft_n_fft: 128
+
+# --- 瀹為獙浜? DB3 鎴偄鑰呰縼绉婚€傞厤涓庣敓鎴愬寮?---
+exp2_transfer:
+  db3_subjects: [3,5,6,7]
+  exercises: [1,2,3]
+  train_repetitions: [1,3,4]
+  validation_repetitions: [6]
+  test_repetitions: [2,5]
+
+  # Subject adaptation uses training repetitions only; validation/test remain held out.
+  random_seed: 42
+
+  # Compare these transfer modes for DB3 subject adaptation checkpoints.
+  transfer_modes: ["amputee_only", "direct_transfer", "pretrained_finetuned"]
+
+  # DB3 fine-tuning / amputee-only training.
+  finetune_epochs: 25
+  amputee_only_epochs: 25
+  patience: 5
+  learning_rate: 0.0001
+  finetune_lr_spatial: 0.00001
+  finetune_lr_refiner: 0.0002
+
+  # DB3 anomaly masks. Main path uses scenario-aligned rule masks.
+  weak_threshold: 0.02
+  abnormal_threshold: 0.95
+  channel_anomaly_ratio: 0.5
+  augmentation_mask_mode: "rule"  # rule anomaly masks only
+
+  # DB3 completion figures: sampled + high-missing windows per subject.
+  generate_db3_completion_panels: true
+  db3_viz_sampled_per_subject: 10
+  db3_viz_high_missing_per_subject: 5
+
+
+# --- 瀹為獙涓? 瑙掑害棰勬祴妯″瀷 ---
+exp3_regressor:
+  # Non-causal offline TCN (same padding, RF=253 pts@200Hz鈮?265ms).
+  hidden_dim: 64
+  n_layers: 6
+  kernel_size: 3
+  n_angle_channels: 10  # Fixed Key10 target; mapping is in utils/kinematic_target.py.
+  model_dropout: 0.1
+
+  # 璁粌鍙傛暟
+  batch_size: 64
+  learning_rate: 0.001
+  num_epochs: 100
+  patience: 20
+  lr_patience: 5
+  lr_factor: 0.5
+
+  # Group C fine-tune 鍙傛暟
+  finetune_lr: 0.0001
+  finetune_epochs: 10
+  finetune_patience: 5
+
+  # DB3 subject-internal comparison: same split and model, only input representation changes.
+  db3_subjects: [5,6]
+  exercises: [1,2]
+  input_modes: ["raw", "enhanced"]
+  split: {train_repetitions: [1,3,4], validation_repetitions: [6], test_repetitions: [2,5]}
+  random_seed: 42
+  viz_trials_per_subject: 8
+  continuous_viz_points: 1280       # 6.4 s at target_fs=200; test-only continuous figure.
+  continuous_viz_min_overlap: 2     # Every plotted point must be supported by two short windows.
+
+  # Dynamic-angle diagnostics only; does not alter train/val/test membership.
+  dynamic_subset_enabled: true
+  dynamic_score: "global_max_ptp"
+  dynamic_min_ptp: 0.05
+  dynamic_min_train_windows: 8
+  dynamic_viz_top_k: 8
+
+  # Fixed DB2-validated continuous output rule. It changes only prediction output,
+  # never TCN training, labels, or the train/val/test split.
+  output_postprocess_enabled: true
+  output_postprocess_fusion: "triangular_overlap_add"
+  output_postprocess_filter: "butterworth"
+  output_postprocess_lowpass_hz: 6.0
+  output_postprocess_calibration: "affine"
+  output_postprocess_savgol_window: 13
+  output_postprocess_savgol_polyorder: 2
+
+
+# --- Experiment 4: DB3 48-class gesture recognition ---
+exp4_gesture:
+  subjects: [3,6,7]
+  exercises: [1,2,3]
+  action_ids: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48]
+  min_label_ratio: 0.80
+  min_repetition_ratio: 0.80
+  random_seed: 42

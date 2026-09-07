@@ -1,0 +1,547 @@
+\documentclass[journal]{IEEEtran}
+
+% ===================== Packages =====================
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{url}
+\usepackage{xcolor}
+\usepackage{bm}
+
+% ===================== Hyphenation =====================
+\hyphenation{op-tical net-works semi-conduc-tor trans-radial}
+
+\begin{document}
+
+\title{A Generative sEMG Augmentation Framework for Continuous Joint Angle Estimation in Transradial Amputees}
+
+\author{Author~Name% <-this % stops a space
+\thanks{Manuscript received XX XX, 2026; revised XX XX, 2026.}%
+\thanks{The authors are with Department/Institute, University, City, Country. E-mail: xxx@xxx.edu.}}
+
+\markboth{IEEE Transactions on Neural Systems and Rehabilitation Engineering,~Vol.~XX, No.~XX, 2026}%
+{Author \MakeLowercase{\textit{et al.}}: Generative sEMG Augmentation for Continuous Joint Angle Estimation}
+
+\maketitle
+
+\begin{abstract}
+Continuous joint-angle estimation is essential for intuitive and proportional control of multi-degree-of-freedom myoelectric prostheses. However, in transradial amputees, residual-limb surface electromyography (sEMG) is often degraded by muscle loss, atrophy, altered neural pathways, and compensatory motor strategies, resulting in weak activations, unreliable channels, and unstable inter-channel coordination. This paper proposes an anatomy-aware masked generative sEMG enhancement framework for continuous joint-angle estimation under residual-limb signal degradation. Instead of attempting to recover unobservable muscle activity, the proposed framework formulates enhancement as task-oriented augmentation of motion-relevant sEMG representations. The framework adopts a masked-autoencoder-style generative model trained with clinically inspired degradation scenarios, including channel missingness, patch-aligned temporal masking, weak-signal-inspired masking, and structured muscle-group masking. From complete multi-channel sEMG of able-bodied subjects, the model learns transferable temporal--synergistic priors, which are then adapted to residual-limb sEMG using limited subject-specific data. Anatomy-aware muscle-group spatial modeling and multi-domain reconstruction objectives are incorporated to preserve physiologically meaningful cross-channel interactions as well as critical waveform, spectral, and high-activation characteristics. Experimental results show that the generatively enhanced representations improve downstream continuous joint-angle estimation compared with raw residual-limb inputs, particularly under missing-channel and weak-signal conditions. This framework provides a task-oriented generative enhancement strategy for degraded residual-limb sEMG and supports the future development of more natural and resilient myoelectric prosthetic control.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Transradial amputee, continuous joint angle estimation, generative sEMG completion, surface electromyography, masked autoencoder, myoelectric prosthesis.
+\end{IEEEkeywords}
+
+\IEEEpeerreviewmaketitle
+
+\section{Introduction}
+
+Surface electromyography (sEMG) is an important biosignal that provides a non-invasive means of measuring neuromuscular activity, and it has been widely used in upper-limb prosthetic control, human--machine interaction, rehabilitation robotics, and motor function assessment \cite{Zhong2026DeepFeature,Hudgins1993Strategy,Cipriani2011Online,Wei2024Continuous}. In myoelectric control, conventional approaches commonly map sEMG segments to predefined discrete gesture classes, whereas continuous motion decoding aims to estimate joint angles, joint torques, grasp forces, or continuous motion intention directly from muscle activation patterns \cite{Jiang2014Mapping,Jiang2014Intuitive,Zhang2020Simultaneous,Krasoulis2015Evaluation}. Compared with discrete classification, continuous decoding is more consistent with the requirements of smooth, proportional, and simultaneous control of multi-degree-of-freedom prosthetic hands, because natural hand movements rely on the continuous coordination of multiple joints and muscle groups rather than isolated switching among a limited number of gesture classes \cite{Jiang2014Intuitive,Xiloyannis2017Gaussian}. Therefore, robust estimation of continuous kinematic states from sEMG is one of the key problems for intuitive upper-limb prosthetic control.
+
+However, sEMG is a low-amplitude, stochastic, and highly non-stationary biosignal. Its signal quality is susceptible to electrode displacement, changes in skin impedance, muscle fatigue, motion artifacts, contraction intensity, limb posture, day-to-day recording variations, and subject-specific physiological differences \cite{Zhong2026DeepFeature,Young2011Electrode,Du2017InterSession}. These challenges become more pronounced in transradial amputees. For transradial amputees, the number and distribution of residual muscles, residual-limb length, recruitable motor units, and compensatory activation strategies may differ substantially from those of able-bodied limbs \cite{Cipriani2011Online,Hwang2014Channel}. Consequently, the observable information in residual-limb sEMG is often more limited, which may be reflected in fewer available channels, reduced channel reliability, weaker activation patterns, and unstable inter-channel coordination. Early studies on online prosthetic-hand control have shown that surface EMG can be used for real-time myoelectric control in transradial amputees, but they also revealed performance differences between amputees and able-bodied subjects, as well as practical difficulties related to residual-limb morphology and electrode placement \cite{Cipriani2011Online}. These factors jointly increase the difficulty of estimating continuous joint angles from residual-limb sEMG and make decoding models more vulnerable to overfitting, distribution shift, and insufficient subject-specific calibration data.
+
+Existing studies have improved sEMG decoding performance from multiple perspectives. Traditional myoelectric control methods usually rely on hand-crafted features, such as root mean square, mean absolute value, waveform length, frequency-domain indices, or time--frequency descriptors, together with linear regression, support vector machines, random forests, or shallow neural networks for motion intention recognition and estimation \cite{Zhong2026DeepFeature,Jiang2014Mapping,Englehart2003Robust}. These methods have the advantages of low computational cost and simple implementation, but their performance depends heavily on manually designed feature sets and is sensitive to electrode shift, fatigue, inter-session variation, and weak muscle activation \cite{Young2011Electrode,Du2017InterSession}. In recent years, deep learning has reduced the reliance on hand-crafted features through end-to-end representation learning. Recurrent neural networks, long short-term memory networks, temporal convolutional networks, convolutional neural networks, Transformers, and graph neural networks have been used to learn temporal dependencies, spatial activation patterns, spectral structures, and functional relationships among EMG channels \cite{Zhong2026DeepFeature,Xiong2021Deep,Zanghieri2020Robust,Sun2022Deep,Zhong2023STGCN,Lee2023Stretchable}. These models have shown promising potential in continuous motion decoding and gesture recognition. Nevertheless, most of them are still trained as discriminative decoders, whose performance depends on the quality of the observed sEMG input, the amount of training data, and the consistency between training and testing distributions \cite{Zhong2026DeepFeature,Wei2024Continuous}. In amputee-specific scenarios, where subject samples are limited and residual-limb signals are markedly degraded, directly learning the mapping from sEMG to joint angles with discriminative models remains insufficient to address signal degradation, channel instability, and few-shot adaptation.
+
+To alleviate data scarcity, signal-quality fluctuations, and cross-user variability, generative learning and self-supervised learning provide a promising route for sEMG representation enhancement. Unlike fully supervised learning, which relies on paired input--output labels, self-supervised methods usually learn transferable representations from unlabeled or weakly labeled data through pretext tasks such as reconstruction, masked modeling, contrastive learning, or context prediction \cite{Zhong2026DeepFeature,He2022MAE}. In the EMG domain, recent studies have begun to explore semi-supervised learning, self-supervised domain adaptation, generative enhancement, and masked reconstruction to improve data efficiency and generalization \cite{Zhong2026DeepFeature,Wang2025TrustEMG,Wang2023Iterative,Duan2023EMGSense,Raghu2024SelfSupervised}. However, most existing generative sEMG studies mainly evaluate their models in terms of signal restoration quality, data synthesis effects, or classification performance. For transradial amputees, a more critical but insufficiently investigated question is whether generatively enhanced sEMG representations can actually improve downstream continuous joint-angle estimation. In other words, residual-limb sEMG enhancement should not be regarded merely as an offline waveform completion problem, but should be evaluated within the target kinematic decoding task.
+
+Based on the above observations, this study does not define residual-limb sEMG enhancement as the precise physiological recovery of unobservable muscle activity. Instead, we formulate it as a task-related representation enhancement problem for continuous kinematic decoding. Upper-limb movement is generated by the coordinated neuromuscular activity of multiple muscle groups. Multi-channel sEMG from able-bodied subjects usually contains relatively complete temporal activation patterns and spatial coordination relationships, which can provide valuable prior knowledge for movement decoding under degraded residual-limb conditions \cite{Zhong2026DeepFeature,Zhong2023STGCN,Lee2023Stretchable}. In contrast, although residual-limb sEMG from amputees suffers from reduced amplitude, incomplete channel observations, and distribution shifts, it still preserves partial neuromuscular information related to motion intention. Therefore, if transferable temporal--synergistic generative priors can be learned from able-bodied sEMG and adapted to residual-limb sEMG, the task-relevant representation quality of degraded signals may be improved, thereby enhancing the robustness and data efficiency of continuous joint-angle estimation.
+
+To this end, this paper proposes an anatomy-aware masked generative sEMG enhancement framework for continuous joint-angle estimation in transradial amputees. The framework adopts a masked-autoencoder-like generative learning paradigm \cite{He2022MAE} and first learns transferable temporal--synergistic priors from complete multi-channel sEMG recordings of able-bodied subjects. During training, the model learns from a clinically inspired Scenario-Mix masking strategy, including channel-level missingness, patch-aligned temporal segment masking, weak-signal-inspired masking, and structured muscle-group masking. Unlike purely random masking, these degradation tasks are designed to simulate common residual-limb sEMG conditions, such as insufficient channel information, locally weakened activation, temporal segment degradation, and impaired muscle-group coordination. This encourages the model to recover motion-related structural information from incomplete observations.
+
+Furthermore, the proposed framework introduces anatomy-aware muscle-group spatial modeling. Functional grouping priors of forearm flexor, forearm extensor, and upper-arm-related channels are incorporated into cross-channel interactions to enhance the model's ability to capture physiologically related channel dependencies. Meanwhile, structured reconstruction constraints are imposed at multiple levels, including waveform amplitude, temporal gradient, spectral structure, and high-activation regions, to reduce over-smoothing and preserve dynamic features closely related to motion intention. On this basis, the generative prior learned from able-bodied subjects is transferred to residual-limb sEMG from transradial amputees and adapted using a small amount of subject-specific data. Finally, under a unified training, testing, and evaluation protocol, the same continuous joint-angle regression model is used to compare raw sEMG inputs with enhanced sEMG representations, so as to quantify the practical contribution of generative enhancement to downstream continuous kinematic decoding. Considering that offline evaluation metrics do not always fully reflect real closed-loop prosthetic control performance, this study focuses on the verifiable effect of generative enhancement on continuous trajectory estimation and provides a foundation for future real-time closed-loop validation \cite{OrtizCatalan2015Offline,Vujaklija2017Translating}.
+
+The main contributions of this paper are summarized as follows:
+
+\begin{enumerate}
+    \item We propose a masked generative sEMG enhancement framework for continuous joint-angle estimation in transradial amputees. The framework reformulates residual-limb sEMG degradation as a task-related representation enhancement problem for downstream kinematic decoding, rather than a purely offline signal completion task.
+
+    \item We design a clinically inspired Scenario-Mix masking strategy. By incorporating channel missingness, patch-aligned temporal segment masking, weak-signal-inspired masking, and structured muscle-group masking, this strategy learns transferable temporal--synergistic generative priors from multi-channel sEMG of able-bodied subjects.
+
+    \item We introduce anatomy-aware spatial modeling and multi-domain structured reconstruction constraints. The proposed design uses anatomical and functional grouping of flexor, extensor, and upper-arm-related channels to guide cross-channel synergy modeling, while waveform, temporal-gradient, spectral, and high-activation reconstruction objectives are used to preserve motion-related dynamic features and reduce over-smoothing.
+
+    \item We establish a systematic evaluation protocol focused on downstream continuous decoding performance. Through progressive experiments including able-bodied signal completion, able-bodied-to-amputee generative-prior transfer, few-shot subject-specific adaptation, and continuous joint-angle estimation, we evaluate the practical effect of generative sEMG enhancement on kinematic decoding in amputees.
+\end{enumerate}
+
+The remainder of this paper is organized as follows. Section II reviews related work on sEMG-based continuous motion decoding, deep EMG representation learning, generative signal enhancement, and myoelectric control in amputees. Section III introduces the proposed anatomy-aware masked generative sEMG enhancement framework. Section IV describes the datasets, preprocessing pipeline, experimental protocols, and evaluation metrics. Section V reports the results of able-bodied signal completion, able-bodied-to-amputee transfer adaptation, and continuous joint-angle estimation. Section VI discusses the clinical implications, feasibility for real-time deployment, and limitations of the proposed method. Section VII concludes the paper and outlines future work.
+
+\section{Methods}
+
+\subsection{Overview of the Generative sEMG Augmentation Framework}
+The proposed framework aims to improve continuous joint angle estimation in transradial amputees by augmenting degraded residual-limb sEMG with a learned generative prior. The central idea is to first learn cross-channel muscle-synergy priors from relatively complete multi-channel sEMG of able-bodied subjects, then transfer this prior to amputee residual-limb sEMG through few-shot subject-specific adaptation, and finally evaluate whether the augmented sEMG representation improves downstream continuous kinematic decoding.
+
+The framework consists of three stages. In the first stage, a masked autoencoder is pretrained on the NinaPro DB2 able-bodied dataset to learn how to reconstruct complete sEMG waveforms from partially observed inputs. In the second stage, the learned able-bodied prior is transferred to the NinaPro DB3 amputee dataset, where subject-specific few-shot adaptation is performed for each amputee participant. In the third stage, the adapted generative model produces augmented sEMG, and the raw sEMG, augmented sEMG, and their channel-wise concatenation are separately fed into identical continuous joint angle regressors for fair comparison.
+
+% If a framework figure is available, place the figure file in the same directory and uncomment the following block.
+% \begin{figure*}[!t]
+%     \centering
+%     \includegraphics[width=0.95\textwidth]{framework.pdf}
+%     \caption{Overall architecture of the proposed generative sEMG augmentation framework.}
+%     \label{fig:framework}
+% \end{figure*}
+
+Given an sEMG window with length $T$ and channel number $C$,
+\begin{equation}
+\mathbf{X} \in \mathbb{R}^{T \times C},
+\end{equation}
+where $C=12$ in the current experimental setting. A binary mask matrix is defined as
+\begin{equation}
+\mathbf{M} \in \{0,1\}^{T \times C}.
+\end{equation}
+The degraded input is obtained by
+\begin{equation}
+\mathbf{X}_{m} = \mathbf{X} \odot \mathbf{M},
+\end{equation}
+where $\odot$ denotes element-wise multiplication. $M_{t,c}=1$ indicates that the corresponding sample is visible, whereas $M_{t,c}=0$ indicates that it is masked. The masked autoencoder $G_{\theta}$ takes the degraded signal and the mask as input and predicts the reconstructed sEMG:
+\begin{equation}
+\hat{\mathbf{X}} = G_{\theta}(\mathbf{X}_{m}, \mathbf{M}).
+\end{equation}
+To avoid modifying originally observed samples, the final augmented signal is obtained through known-region fill-back:
+\begin{equation}
+\mathbf{X}_{aug} = \hat{\mathbf{X}} \odot (1-\mathbf{M}) + \mathbf{X} \odot \mathbf{M}.
+\end{equation}
+Thus, the generative model only fills the masked regions while preserving all visible observations.
+
+\subsection{sEMG Preprocessing and Window Construction}
+Raw sEMG recordings are converted into fixed-length temporal windows to fit both the generative completion model and the continuous kinematic regression model. Each input sample is represented as
+\begin{equation}
+\mathbf{X}_i \in \mathbb{R}^{T \times C},
+\end{equation}
+where $T$ is the window length and $C$ is the number of sEMG channels. Windows are extracted from continuous sEMG sequences with a predefined sliding step. For the kinematic-estimation task, each sEMG window is paired with the synchronized joint-angle sequence:
+\begin{equation}
+\mathbf{Y}_i \in \mathbb{R}^{T \times J},
+\end{equation}
+where $J$ denotes the number of joint-angle dimensions. The current implementation uses $J=22$, corresponding to multiple hand joint degrees of freedom.
+
+To reduce amplitude differences across channels and subjects, the sEMG signals are normalized before being fed into the model. The implementation provides a percentile-based robust normalization strategy to reduce the effect of abnormal peaks on scale estimation:
+\begin{equation}
+\tilde{x} = \frac{x-Q_{low}(x)}{Q_{high}(x)-Q_{low}(x)+\epsilon},
+\end{equation}
+where $Q_{low}$ and $Q_{high}$ denote the lower and upper percentiles, respectively, and $\epsilon$ is a small constant for numerical stability. The normalized signals are further clipped to a fixed range to improve cross-subject training stability.
+
+\subsection{Scenario-guided Degradation Modeling}
+To train the generative model to complete different types of degraded sEMG, we adopt a ScenarioMix masking strategy. ScenarioMix constructs degradation patterns according to the anatomical and functional distribution of sEMG channels, so that training includes not only random missingness but also structured channel degradation that resembles forearm muscle organization.
+
+Under the NinaPro 12-channel sEMG setting, channels are divided into three anatomical functional groups:
+\begin{equation}
+\mathcal{G}_{flexor}=\{1,2,3,4,9\},
+\end{equation}
+\begin{equation}
+\mathcal{G}_{extensor}=\{5,6,7,8,10\},
+\end{equation}
+\begin{equation}
+\mathcal{G}_{upper}=\{11,12\}.
+\end{equation}
+Here, $\mathcal{G}_{flexor}$ denotes flexor-related channels, $\mathcal{G}_{extensor}$ denotes extensor-related channels, and $\mathcal{G}_{upper}$ denotes upper-arm-related channels. The grouping is used both for degradation mask generation and for the group-biased spatial Transformer described later.
+
+ScenarioMix supports four degradation scenarios. \emph{Scattered missing} simulates randomly distributed weak or locally missing observations. The model randomly masks subsets of channels and temporal segments, forcing it to recover local sEMG waveforms from sparse context. \emph{Adjacent-channel missing} simulates poor contact of neighboring electrodes or local regional muscle-signal degradation. The mask generator selects adjacent candidate channels within the flexor or extensor group for masking. In the current main experiments, a conservative setting is adopted in which only one adjacent candidate channel is masked each time to avoid excessive early-stage degradation. \emph{Cross-group missing} simulates channel loss across functional muscle groups by masking channels from the flexor, extensor, and upper-arm groups simultaneously. This scenario is implemented as an optional degradation mode but is disabled by default in the main configuration, because overly strong cross-group removal may destabilize early training. \emph{Heavy temporal missing} focuses on severe temporal-segment missingness. Instead of deleting entire channels, it imposes strong patch-level temporal masking on each channel to simulate transient electrode instability or local temporal signal loss.
+
+To prevent information leakage, all temporal masking is aligned with patch boundaries. If the patch size is $P$, both the start point and length of each masked temporal block are integer multiples of $P$. This ensures consistency between sample-level and patch-level masks and prevents the model from inferring a masked region from residual samples within the same patch.
+
+The patch-level mask is derived from the sample-level mask through min-pooling:
+\begin{equation}
+m^{patch}_{c,n} = \min_{t \in \mathcal{P}_n} M_{t,c},
+\end{equation}
+where $\mathcal{P}_n$ denotes the set of samples belonging to the $n$-th patch. If any sample inside a patch is masked, the whole patch is treated as invisible.
+
+\subsection{Masked Autoencoder for sEMG Completion}
+The generative completion model adopts a one-dimensional masked autoencoder architecture. Unlike standard MAE models that primarily focus on image patches or long temporal sequences, the proposed model emphasizes cross-channel muscle-synergy modeling in sEMG. It consists of patch embedding, early mask injection, spatial mixing, channel summary mapping, anatomy-biased spatial Transformer modeling, temporal upsampling, residual feature fusion, and waveform recovery.
+
+\subsubsection{Patch Embedding}
+Given a degraded input signal
+\begin{equation}
+\mathbf{X}_{m} \in \mathbb{R}^{T \times C},
+\end{equation}
+each channel is first divided along the temporal dimension into $N$ patches:
+\begin{equation}
+N = \frac{T}{P},
+\end{equation}
+where $P$ is the patch size. A one-dimensional convolutional embedding layer then maps each patch of each channel into a $D$-dimensional token:
+\begin{equation}
+\mathbf{Z} = \mathrm{PatchEmbed}(\mathbf{X}_{m}) \in \mathbb{R}^{C \times N \times D}.
+\end{equation}
+This operation converts continuous sEMG waveforms into token representations suitable for Transformer-based modeling.
+
+\subsubsection{Early Mask Injection}
+To ensure that the model cannot access original information from masked regions, early mask injection is used. First, sample-level masking is applied at the input level:
+\begin{equation}
+\mathbf{X}_{m} = \mathbf{X} \odot \mathbf{M}.
+\end{equation}
+Then, according to the patch-level mask, invisible patch tokens are replaced by a learnable $[\mathrm{MASK\_PATCH}]$ token:
+\begin{equation}
+\mathbf{z}_{c,n} =
+\begin{cases}
+\mathbf{z}_{c,n}, & m^{patch}_{c,n}=1,\\
+\mathbf{e}_{mask}, & m^{patch}_{c,n}=0.
+\end{cases}
+\end{equation}
+With this design, the model can complete masked regions only from neighboring temporal context and cross-channel muscle synergy, rather than from residual information inside the masked patch.
+
+The implementation also retains an optional channel-level $[\mathrm{MASK\_CH}]$ token replacement mechanism for whole-channel missingness. In the current main configuration, however, this option is disabled, and channel degradation is represented mainly through sample-level and patch-level masks.
+
+\subsection{Anatomy-biased Spatial Modeling}
+\subsubsection{Channel and Temporal Positional Encoding}
+To preserve channel identity and temporal location, channel and temporal positional embeddings are added to the patch tokens:
+\begin{equation}
+\mathbf{z}_{c,n} = \mathbf{z}_{c,n} + \mathbf{p}^{ch}_{c} + \mathbf{p}^{time}_{n},
+\end{equation}
+where $\mathbf{p}^{ch}_{c}$ denotes the positional embedding of the $c$-th sEMG channel, and $\mathbf{p}^{time}_{n}$ denotes the temporal positional embedding of the $n$-th patch.
+
+The implementation also includes optional subject-condition embedding interfaces, such as side, age, and gender embeddings, for compatibility with earlier checkpoints and future ablation studies. In the current main experiments, these demographic condition embeddings are disabled to avoid introducing additional subject-level confounders. Therefore, all reported main results correspond to the MAE completion model without demographic conditioning.
+
+\subsubsection{Spatial Mixer}
+Before the Transformer backbone, a lightweight spatial mixer is used to explicitly mix information along the channel dimension. For each temporal patch and embedding dimension, the module applies an MLP transformation over the channel dimension:
+\begin{equation}
+\mathbf{Z}' = \mathbf{Z} + \mathrm{MLP}_{ch}(\mathbf{Z}).
+\end{equation}
+This allows each channel token to access information from other channels before entering self-attention, strengthening early cross-channel interaction.
+
+\subsubsection{Channel Summary Mapping}
+The model then maps the $N$ patch tokens of each channel into $K$ channel-summary tokens:
+\begin{equation}
+\mathbf{S} = \mathrm{Summary}(\mathbf{Z}') \in \mathbb{R}^{C \times K \times D}.
+\end{equation}
+This module is implemented by a one-dimensional convolution and provides structured channel-level token representations for subsequent spatial attention. In the current main configuration, $K=N=32$; therefore, the module does not compress temporal resolution but preserves the original patch-level temporal resolution while providing a unified summary interface for the spatial Transformer.
+
+\subsubsection{Group-biased Spatial Transformer}
+The core spatial modeling component is a spatial Transformer with anatomy-aware group bias. All channel-summary tokens are flattened into a sequence of length $C\times K$, and multi-head self-attention is applied:
+\begin{equation}
+\mathbf{H} = \mathrm{Transformer}(\mathbf{S}).
+\end{equation}
+To incorporate anatomical prior knowledge, a learnable inter-group bias is added to the self-attention logits. For the $i$-th and $j$-th tokens, let $g(i)$ and $g(j)$ denote their corresponding muscle groups. The group-biased attention is computed as
+\begin{equation}
+\mathrm{Attn}(\mathbf{Q},\mathbf{K},\mathbf{V}) = \mathrm{Softmax}\left(\frac{\mathbf{Q}\mathbf{K}^{T}}{\sqrt{d}} + \mathbf{B}_{g(i),g(j)}\right)\mathbf{V},
+\end{equation}
+where $\mathbf{B}_{g(i),g(j)}$ is a learnable relative bias term between anatomical groups. This mechanism allows the model to explicitly distinguish functional relationships among flexor-, extensor-, and upper-arm-related channels, thereby improving the physiological plausibility of cross-channel interaction.
+
+\subsection{Temporal Reconstruction and Feature Fusion}
+After anatomy-biased spatial Transformer modeling, the spatially conditioned tokens are mapped back to patch-level temporal resolution:
+\begin{equation}
+\mathbf{U} = \mathrm{Upsample}(\mathbf{H}) \in \mathbb{R}^{C \times N \times D}.
+\end{equation}
+In the implementation, temporal upsampling is performed by transposed one-dimensional convolution, forming a counterpart to the channel summary mapping module.
+
+The spatial condition is then fused with the original patch-token representation. The implementation supports both dynamic feature-wise linear modulation (FiLM) and residual additive fusion. For training stability in the main experiments, residual additive fusion is used by default:
+\begin{equation}
+\tilde{\mathbf{z}}_{c,n} = \mathbf{z}_{c,n} + f_h(\mathbf{u}_{c,n}),
+\end{equation}
+where $f_h(\cdot)$ is a linear mapping or lightweight projection layer, and $\mathbf{u}_{c,n}$ denotes the spatially modeled and temporally upsampled condition token. This design injects anatomy-biased spatial context into the patch representation in a residual manner and avoids instability that may arise from FiLM modulation during early training.
+
+Dynamic FiLM is retained as an optional module in the codebase and can be written as
+\begin{equation}
+\tilde{\mathbf{z}}_{c,n} = \gamma_{c,n} \odot \mathbf{z}_{c,n} + \beta_{c,n},
+\end{equation}
+where $\gamma_{c,n}$ and $\beta_{c,n}$ are predicted from the spatial condition token. This mode is not used as the default setting in the current main experiments.
+
+The implementation further provides an optional Time Refiner, a channel-shared temporal Transformer for modeling the within-channel patch sequence. In the current main configuration, $\mathrm{temporal\_depth}=0$; therefore, the Time Refiner is disabled, and temporal dynamics are captured by patch embedding, spatial modeling, temporal upsampling, and residual fusion.
+
+Finally, a linear prediction head maps each patch token back to a waveform segment of length $P$, and the complete sEMG sequence is recovered through patch reconstruction:
+\begin{equation}
+\hat{\mathbf{X}} = \mathrm{Recover}\left(\mathrm{Linear}(\tilde{\mathbf{Z}})\right).
+\end{equation}
+
+\subsection{Structural Reconstruction Loss}
+To make the generated signal close to real sEMG not only in amplitude but also in local temporal variation and spectral structure, the masked autoencoder is trained with a structural reconstruction loss. The total loss used in the current main experiments is
+\begin{equation}
+\mathcal{L}_{total} = \mathcal{L}_{rec} + \lambda_{known}\mathcal{L}_{known} + \lambda_{grad}\mathcal{L}_{grad} + \lambda_{freq}\mathcal{L}_{freq}.
+\end{equation}
+Here, $\mathcal{L}_{rec}$ is the missing-region reconstruction loss, $\mathcal{L}_{known}$ is the known-region consistency loss, $\mathcal{L}_{grad}$ is the temporal-gradient loss, and $\mathcal{L}_{freq}$ is the spectral loss.
+
+The missing-region reconstruction loss is defined as
+\begin{equation}
+\mathcal{L}_{rec} = \frac{\sum |\hat{\mathbf{X}}-\mathbf{X}| \odot (1-\mathbf{M}) \odot \mathbf{W}_{peak}}{\sum (1-\mathbf{M})+\epsilon},
+\end{equation}
+where the peak-aware weighting term is
+\begin{equation}
+\mathbf{W}_{peak} = 1+\alpha_{peak}|\mathbf{X}|.
+\end{equation}
+This term encourages the model to focus more on high-activation regions and prevents training from being dominated by low-amplitude background samples.
+
+The known-region consistency loss is defined as
+\begin{equation}
+\mathcal{L}_{known} = \frac{\sum |\hat{\mathbf{X}}-\mathbf{X}| \odot \mathbf{M}}{\sum \mathbf{M}+\epsilon}.
+\end{equation}
+This term encourages waveform continuity near visible regions and reduces boundary inconsistency between generated and observed samples.
+
+The temporal-gradient loss matches the first-order temporal difference:
+\begin{equation}
+\mathcal{L}_{grad} = \left\| \nabla_t \hat{\mathbf{X}} - \nabla_t \mathbf{X} \right\|_1.
+\end{equation}
+This term encourages generated signals to preserve local temporal trends of real sEMG and alleviates over-smoothing.
+
+The spectral loss is based on multi-scale short-time Fourier transform (STFT) log-magnitude differences:
+\begin{equation}
+\mathcal{L}_{freq} = \frac{1}{|\Omega|} \sum_{\omega \in \Omega} \left\| \log |\mathrm{STFT}_{\omega}(\hat{\mathbf{X}})| - \log |\mathrm{STFT}_{\omega}(\mathbf{X})| \right\|_1,
+\end{equation}
+where $\Omega$ denotes a set of STFT scales. This loss constrains the generated signal in the frequency domain and encourages it to match the spectral distribution of real sEMG.
+
+Smoothness loss and Pearson-correlation loss are also implemented in the codebase but are disabled by default in the current main configuration. Therefore, the main experiments correspond to the four-term structural reconstruction objective above.
+
+\subsection{Healthy-subject Prior Pretraining on DB2}
+In the first stage, the generative sEMG completion model is pretrained on the NinaPro DB2 able-bodied dataset. During training, the ScenarioMix mask generator samples degradation masks that simulate amputation-related channel loss, local dropout, and temporal degradation on fully observed able-bodied sEMG. Because the original DB2 waveform is available, it serves as the reconstruction target, and the model learns to recover complete sEMG waveforms from degraded observations.
+
+The pretraining objective is formulated as
+\begin{equation}
+\theta^{*} = \arg\min_{\theta} \mathbb{E}_{\mathbf{X}\sim DB2,\mathbf{M}\sim ScenarioMix}\left[\mathcal{L}_{total}\left(G_{\theta}(\mathbf{X}\odot\mathbf{M},\mathbf{M}),\mathbf{X},\mathbf{M}\right)\right].
+\end{equation}
+To improve training stability, a warm-up masking strategy can be used at the beginning of training, allowing the model to first learn easier scattered-missing completion before moving to the full ScenarioMix degradation setting. The model obtained after this stage is regarded as an able-bodied sEMG generative prior and is used to initialize amputee-specific adaptation.
+
+\subsection{Few-shot Adaptation on DB3 Amputee Subjects}
+Because residual-limb sEMG from amputees differs substantially from able-bodied sEMG, subject-specific few-shot adaptation is performed on the NinaPro DB3 amputee dataset. For each DB3 subject, a subject-internal split is used to divide the data into a few-shot adaptation subset, validation indices, and a test subset. The few-shot subset is used for individualized adaptation, whereas the held-out windows are used for downstream raw-versus-augmented sEMG comparison. The DB3 raw signal is not treated as complete healthy ground truth; instead, unreliable channels and patches are identified by rule-based anomaly masks before completion.
+
+To evaluate the role of the able-bodied prior, three generative-model settings are compared:
+\begin{enumerate}
+    \item \emph{Direct transfer}: the DB2-pretrained model is directly applied without DB3 fine-tuning;
+    \item \emph{Pretrained-finetuned}: the DB2-pretrained model is used for initialization and is then fine-tuned on the DB3 few-shot subset;
+    \item \emph{Amputee-only}: the model is trained from scratch using only the DB3 few-shot subset without DB2 pretraining.
+\end{enumerate}
+
+During fine-tuning, a layer-wise learning-rate strategy is adopted. Backbone modules, including patch embedding, the spatial modeling backbone, and temporal upsampling, use a smaller learning rate to preserve the general muscle-synergy prior learned from able-bodied data. Adaptation modules, such as the fusion layer and prediction head, use a larger learning rate to more rapidly fit the target residual-limb distribution. This strategy balances prior preservation and subject-specific adaptation.
+
+\subsection{Generation of Augmented Amputee sEMG}
+After DB3 few-shot adaptation, the individualized generative model is used to augment amputee sEMG. For each DB3 subject, the augmentation script loads the corresponding pretrained-finetuned checkpoint by default. If the checkpoint is unavailable, the DB2-pretrained model is used as a fallback.
+
+For an input window $\mathbf{X}$, a DB3 rule anomaly mask $\mathbf{M}$ is constructed by detecting dead channels, unreliable channels, and abnormal patches. The masked input is then fed into the MAE for completion:
+\begin{equation}
+\hat{\mathbf{X}} = G_{\theta}(\mathbf{X}\odot\mathbf{M},\mathbf{M}).
+\end{equation}
+The final augmented signal is obtained through known-region fill-back:
+\begin{equation}
+\mathbf{X}_{aug} = \hat{\mathbf{X}} \odot (1-\mathbf{M}) + \mathbf{X} \odot \mathbf{M}.
+\end{equation}
+This strategy does not fully replace the original residual-limb sEMG. Instead, it generates completion only in the rule-identified unreliable regions under the constraint of the learned able-bodied prior while preserving reliable observations. The raw sEMG, augmented sEMG, and corresponding rule-mask metadata, including mask, mask mode, patch-level mask, and dead-channel indices, are saved for fair downstream kinematic regression.
+
+In the main DB3 completion path, the rule anomaly detector is fitted separately for each amputee subject and produces the mask regions to be completed. This avoids treating amputee residual-limb sEMG as complete healthy ground truth and aligns the augmentation step with observable signal reliability rather than artificial DB3 target hiding.
+
+\subsection{Continuous Joint Angle Estimation}
+To evaluate whether generative sEMG augmentation benefits downstream motion decoding, a continuous joint angle regression network is constructed. Given an sEMG input $\mathbf{X}^{in}$, the regressor predicts the synchronized joint-angle sequence:
+\begin{equation}
+\hat{\mathbf{Y}} = R_{\phi}(\mathbf{X}^{in}),
+\end{equation}
+where
+\begin{equation}
+\hat{\mathbf{Y}} \in \mathbb{R}^{T \times J}.
+\end{equation}
+
+The current implementation uses a temporal convolutional network as the default kinematic regressor. The network consists of multiple one-dimensional convolutional residual blocks, and dilated convolutions are used to enlarge the temporal receptive field. The dilation rate of the $l$-th layer is
+\begin{equation}
+d_l=2^l.
+\end{equation}
+Each temporal block contains one-dimensional convolution, normalization, nonlinear activation, dropout, and residual connection. If the residual branch and the main branch have different dimensions, a $1\times 1$ convolution is used for dimension matching. The final linear projection layer outputs $J$ continuous joint-angle dimensions.
+
+The kinematic regression model is trained with mean squared error:
+\begin{equation}
+\mathcal{L}_{kin} = \frac{1}{N} \sum_{i=1}^{N} \|\hat{\mathbf{Y}}_i-\mathbf{Y}_i\|_2^2.
+\end{equation}
+For fair evaluation, each DB3 subject uses the same subject-specific split, and regressors with identical architectures and hyperparameters are trained for different input modes. The compared input modes are
+\begin{equation}
+\mathrm{Raw}: \mathbf{X}_{raw},
+\end{equation}
+\begin{equation}
+\mathrm{Enhanced}: \mathbf{X}_{aug},
+\end{equation}
+\begin{equation}
+\mathrm{Raw+Enhanced}: [\mathbf{X}_{raw};\mathbf{X}_{aug}].
+\end{equation}
+Here, Raw denotes the original residual-limb sEMG, Enhanced denotes the MAE-generated augmented sEMG, and Raw+Enhanced denotes the channel-wise concatenation of the raw and augmented signals. Comparing the three modes determines whether generative completion provides additional useful information for downstream motion decoding.
+
+A bidirectional LSTM regressor is also implemented as an optional model, but TCN is used as the default setting in the main experiments.
+
+\section{Experimental Protocol}
+Three progressive experiments are designed to systematically validate the proposed generative sEMG augmentation framework.
+
+\subsection{Experiment 1: Healthy-subject sEMG Completion on DB2}
+The first experiment evaluates whether the MAE model can learn reliable sEMG completion from able-bodied data. The model is pretrained on the DB2 able-bodied dataset using ScenarioMix masks and evaluated on held-out samples or held-out subjects.
+
+The objective of this experiment is to demonstrate that, under ScenarioMix degradation masks on fully observed DB2 sEMG, the anatomy-biased MAE can exploit cross-channel muscle synergy to reconstruct masked waveforms and learn a transferable able-bodied sEMG prior.
+
+\subsection{Experiment 2: Healthy-to-Amputee Transfer on DB3}
+The second experiment evaluates whether the able-bodied generative prior can be transferred to amputee residual-limb sEMG. For each DB3 subject, direct transfer, pretrained-finetuned, and amputee-only settings are compared through subject adaptation and downstream raw-versus-augmented sEMG analysis. DB3 completion is driven by rule anomaly masks rather than artificial target hiding, so the experiment does not use DB3 residual-limb sEMG as complete healthy reconstruction ground truth.
+
+This experiment addresses two questions: whether DB2 pretraining provides an effective initialization for amputee sEMG completion, and whether a small amount of DB3 subject-specific adaptation can further improve residual-limb signal completion.
+
+\subsection{Experiment 3: Continuous Joint Angle Estimation with Raw and Augmented sEMG}
+The third experiment evaluates the practical contribution of generative sEMG augmentation to continuous joint angle estimation. For each DB3 subject, the same data split and the same TCN regressor are used to train and test models under Raw, Enhanced, and Raw+Enhanced input modes.
+
+If Enhanced or Raw+Enhanced inputs achieve lower angle-estimation error or higher trajectory correlation than Raw inputs, the result would indicate that the MAE-generated augmented signal is not only waveform-level plausible but also informative for neuromuscular motion decoding.
+
+\section{Evaluation Metrics}
+For the sEMG completion task, RMSE, MAE, Pearson correlation coefficient, and spectral similarity are used to evaluate the consistency between generated and real signals. All completion metrics are preferably computed only in masked regions to reflect the actual recovery ability of the model.
+
+RMSE is defined as
+\begin{equation}
+\mathrm{RMSE}=\sqrt{\frac{1}{N}\sum_{i=1}^{N}(\hat{x}_i-x_i)^2}.
+\end{equation}
+MAE is defined as
+\begin{equation}
+\mathrm{MAE}=\frac{1}{N}\sum_{i=1}^{N}|\hat{x}_i-x_i|.
+\end{equation}
+The Pearson correlation coefficient is defined as
+\begin{equation}
+\mathrm{CC}=\frac{\sum_{i=1}^{N}(\hat{x}_i-\bar{\hat{x}})(x_i-\bar{x})}{\sqrt{\sum_{i=1}^{N}(\hat{x}_i-\bar{\hat{x}})^2}\sqrt{\sum_{i=1}^{N}(x_i-\bar{x})^2}}.
+\end{equation}
+Spectral similarity is computed by comparing the spectral magnitude distributions of predicted and real signals, which measures whether generated sEMG preserves the frequency-domain structure of real sEMG.
+
+For continuous joint angle estimation, $R^2$, RMSE, MAE, and Pearson correlation coefficient are used to evaluate the consistency between predicted and ground-truth joint-angle trajectories. The coefficient of determination is defined as
+\begin{equation}
+R^2=1-\frac{\sum_{i=1}^{N}(y_i-\hat{y}_i)^2}{\sum_{i=1}^{N}(y_i-\bar{y})^2}.
+\end{equation}
+Lower RMSE and MAE indicate smaller prediction errors, whereas higher $R^2$ and Pearson correlation indicate that the predicted trajectories better follow the true joint motion.
+
+\section{Results}
+% To be completed: DB2 healthy-subject completion results, DB3 transfer/adaptation results, and Raw/Enhanced/Raw+Enhanced continuous angle-estimation results.
+
+\section{Discussion}
+% To be completed: methodological advantages, clinical implications, real-time application boundaries, limitations, and future work.
+
+\section{Conclusion}
+% To be completed.
+
+\appendices
+\section{Additional Implementation Details}
+% To be completed: model hyperparameters, training details, data split details, and implementation environment.
+
+\section*{Acknowledgment}
+% To be completed: funding sources, experimental assistance, and dataset acknowledgments.
+
+\ifCLASSOPTIONcaptionsoff
+  \newpage
+\fi
+
+\begin{thebibliography}{99}
+
+\bibitem{Zhong2026DeepFeature}
+W. Zhong, X. Jiang, K. Szymaniak, M. Jabbari, C. Ma, and K. Nazarpour,
+``Deep feature learning from electromyographic signals for gesture recognition systems,''
+\emph{IEEE Trans. Neural Syst. Rehabil. Eng.}, vol. 34, pp. 20--35, 2026.
+
+\bibitem{Hudgins1993Strategy}
+B. Hudgins, P. Parker, and R. N. Scott,
+``A new strategy for multifunction myoelectric control,''
+\emph{IEEE Trans. Biomed. Eng.}, vol. 40, no. 1, pp. 82--94, Jan. 1993.
+
+\bibitem{Cipriani2011Online}
+C. Cipriani, C. Antfolk, M. Controzzi, G. Lundborg, B. Ros{\'e}n, M. C. Carrozza, and F. Sebelius,
+``Online myoelectric control of a dexterous hand prosthesis by transradial amputees,''
+\emph{IEEE Trans. Neural Syst. Rehabil. Eng.}, vol. 19, no. 3, pp. 260--270, Jun. 2011.
+
+\bibitem{Wei2024Continuous}
+Z. Wei, Z.-Q. Zhang, and S. Q. Xie,
+``Continuous motion intention prediction using sEMG for upper-limb rehabilitation: A systematic review of model-based and model-free approaches,''
+\emph{IEEE Trans. Neural Syst. Rehabil. Eng.}, vol. 32, pp. 1487--1504, 2024.
+
+\bibitem{Jiang2014Mapping}
+N. Jiang, I. Vujaklija, H. Rehbaum, B. Graimann, and D. Farina,
+``Is accurate mapping of EMG signals on kinematics needed for precise online myoelectric control?''
+\emph{IEEE Trans. Neural Syst. Rehabil. Eng.}, vol. 22, no. 3, pp. 549--558, May 2014.
+
+\bibitem{Jiang2014Intuitive}
+N. Jiang, H. Rehbaum, I. Vujaklija, B. Graimann, and D. Farina,
+``Intuitive, online, simultaneous, and proportional myoelectric control over two degrees-of-freedom in upper limb amputees,''
+\emph{IEEE Trans. Neural Syst. Rehabil. Eng.}, vol. 22, no. 3, pp. 501--510, May 2014.
+
+\bibitem{Zhang2020Simultaneous}
+Q. Zhang, T. Pi, R. Liu, and C. Xiong,
+``Simultaneous and proportional estimation of multijoint kinematics from EMG signals for myocontrol of robotic hands,''
+\emph{IEEE/ASME Trans. Mechatronics}, vol. 25, no. 4, pp. 1953--1960, Aug. 2020.
+
+\bibitem{Krasoulis2015Evaluation}
+A. Krasoulis, S. Vijayakumar, and K. Nazarpour,
+``Evaluation of regression methods for the continuous decoding of finger movement from surface EMG and accelerometry,''
+in \emph{Proc. 7th Int. IEEE/EMBS Conf. Neural Eng.}, Apr. 2015, pp. 631--634.
+
+\bibitem{Xiloyannis2017Gaussian}
+M. Xiloyannis, C. Gavriel, A. A. C. Thomik, and A. A. Faisal,
+``Gaussian process autoregression for simultaneous proportional multi-modal prosthetic control with natural hand kinematics,''
+\emph{IEEE Trans. Neural Syst. Rehabil. Eng.}, vol. 25, no. 10, pp. 1785--1801, Oct. 2017.
+
+\bibitem{Young2011Electrode}
+A. J. Young, L. J. Hargrove, and T. A. Kuiken,
+``The effects of electrode size and orientation on the sensitivity of myoelectric pattern recognition systems to electrode shift,''
+\emph{IEEE Trans. Biomed. Eng.}, vol. 58, no. 9, pp. 2537--2544, Sep. 2011.
+
+\bibitem{Du2017InterSession}
+Y. Du, W. Jin, W. Wei, Y. Hu, and W. Geng,
+``Surface EMG-based inter-session gesture recognition enhanced by deep domain adaptation,''
+\emph{Sensors}, vol. 17, no. 3, Art. no. 458, Feb. 2017.
+
+\bibitem{Hwang2014Channel}
+H.-J. Hwang, J. M. Hahne, and K.-R. M{\"u}ller,
+``Channel selection for simultaneous and proportional myoelectric prosthesis control of multiple degrees-of-freedom,''
+\emph{J. Neural Eng.}, vol. 11, no. 5, Art. no. 056008, Aug. 2014.
+
+\bibitem{Englehart2003Robust}
+K. Englehart and B. Hudgins,
+``A robust, real-time control scheme for multifunction myoelectric control,''
+\emph{IEEE Trans. Biomed. Eng.}, vol. 50, no. 7, pp. 848--854, Jul. 2003.
+
+\bibitem{Xiong2021Deep}
+D. Xiong, D. Zhang, X. Zhao, and Y. Zhao,
+``Deep learning for EMG-based human--machine interaction: A review,''
+\emph{IEEE/CAA J. Autom. Sinica}, vol. 8, no. 3, pp. 512--533, Mar. 2021.
+
+\bibitem{Zanghieri2020Robust}
+M. Zanghieri, S. Benatti, A. Burrello, V. Kartsch, F. Conti, and L. Benini,
+``Robust real-time embedded EMG recognition framework using temporal convolutional networks on a multicore IoT processor,''
+\emph{IEEE Trans. Biomed. Circuits Syst.}, vol. 14, no. 2, pp. 244--256, Apr. 2020.
+
+\bibitem{Sun2022Deep}
+T. Sun, Q. Hu, J. Libby, and S. F. Atashzar,
+``Deep heterogeneous dilation of LSTM for transient-phase gesture prediction through high-density electromyography: Towards application in neurorobotics,''
+\emph{IEEE Robot. Autom. Lett.}, vol. 7, no. 2, pp. 2851--2858, Apr. 2022.
+
+\bibitem{Zhong2023STGCN}
+W. Zhong, Y. Zhang, P. Fu, W. Xiong, and M. Zhang,
+``A spatio-temporal graph convolutional network for gesture recognition from high-density electromyography,''
+in \emph{Proc. 29th Int. Conf. Mechatronics Mach. Vis. Pract.}, Nov. 2023, pp. 1--6.
+
+\bibitem{Lee2023Stretchable}
+H. Lee \emph{et al.},
+``Stretchable array electromyography sensor with graph neural network for static and dynamic gestures recognition system,''
+\emph{npj Flexible Electron.}, vol. 7, no. 1, Art. no. 20, Apr. 2023.
+
+\bibitem{He2022MAE}
+K. He, X. Chen, S. Xie, Y. Li, P. Doll{\'a}r, and R. Girshick,
+``Masked autoencoders are scalable vision learners,''
+in \emph{Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit.}, Jun. 2022, pp. 16000--16009.
+
+\bibitem{Wang2025TrustEMG}
+K.-C. Wang, K.-C. Liu, P.-C. Yeh, S.-Y. Peng, and Y. Tsao,
+``TrustEMG-Net: Using representation-masking transformer with U-Net for surface electromyography enhancement,''
+\emph{IEEE J. Biomed. Health Informat.}, vol. 29, no. 4, pp. 2506--2520, Apr. 2025.
+
+\bibitem{Wang2023Iterative}
+K. Wang, Y. Chen, Y. Zhang, X. Yang, and C. Hu,
+``Iterative self-training based domain adaptation for cross-user sEMG gesture recognition,''
+\emph{IEEE Trans. Neural Syst. Rehabil. Eng.}, vol. 31, pp. 2974--2987, 2023.
+
+\bibitem{Duan2023EMGSense}
+D. Duan, H. Yang, G. Lan, T. Li, X. Jia, and W. Xu,
+``EMGSense: A low-effort self-supervised domain adaptation framework for EMG sensing,''
+in \emph{Proc. IEEE Int. Conf. Pervasive Comput. Commun.}, Mar. 2023, pp. 160--170.
+
+\bibitem{Raghu2024SelfSupervised}
+S. T. P. Raghu, D. T. MacIsaac, and E. J. Scheme,
+``Self-supervised representation learning with continuous training data improves the feel and performance of myoelectric control,''
+\emph{Computers in Biology and Medicine}, vol. 197, Art. no. 111029, 2025.
+
+\bibitem{OrtizCatalan2015Offline}
+M. Ortiz-Catalan, F. Rouhani, R. Br{\aa}nemark, and B. H{\aa}kansson,
+``Offline accuracy: A potentially misleading metric in myoelectric pattern recognition for prosthetic control,''
+in \emph{Proc. Annu. Int. Conf. IEEE Eng. Med. Biol. Soc.}, Nov. 2015, pp. 1140--1143.
+
+\bibitem{Vujaklija2017Translating}
+I. Vujaklija \emph{et al.},
+``Translating research on myoelectric control into clinics---Are the performance assessment methods adequate?''
+\emph{Frontiers Neurorobotics}, vol. 11, Art. no. 7, Feb. 2017.
+
+\end{thebibliography}
+
+% Remove the biography section if it is not required by the target submission format.
+\begin{IEEEbiographynophoto}{Author Name}
+Biography text here.
+\end{IEEEbiographynophoto}
+
+\end{document}
