@@ -1,5 +1,7 @@
 ## 2026-09-07
 
+- Configure DB2/DB3 under F:/A-SCI, use project-local metadata/output paths, and keep pipeline subprocesses in the active Python environment. Add a bounded real-data setup check.
+
 - Prepare the initial GitHub source upload; add .gitignore rules for Python caches, IDE settings, local environments, experiment outputs, and model checkpoints.
 
 ## 2026-08-26

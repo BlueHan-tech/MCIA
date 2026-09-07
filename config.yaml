@@ -1,14 +1,14 @@
-﻿# ============================================================================
+# ============================================================================
 # 缁熶竴瓒呭弬鏁伴厤缃?
 # ============================================================================
 
 # --- 鏁版嵁璺緞 ---
 paths:
-  db2: "D:\\code\\data\\Ninapro-DB2"
-  db3: "D:\\code\\data\\Ninapro-DB3"
+  db2: "F:/A-SCI/Ninapro-DB2"
+  db3: "F:/A-SCI/Ninapro-DB3"
   output: "outputs"
-  checkpoints: "D:\\code\\A_clean\\A_king-main\\checkpoints"
-  metadata_csv: "D:\\code\\A_clean\\A_king-main\\db2_metadata.csv"
+  checkpoints: "checkpoints"
+  metadata_csv: "db2_metadata.csv"
 # paths:
 #   db2: "/home/zyh/Ninapro-DB2"
 #   db3: "/home/zyh/Ninapro-DB3"
@@ -54,7 +54,7 @@ level0_baseline:
   patience: 20
   lr_patience: 5
   lr_factor: 0.5
-  results_path: "D:\\code\\A_clean\\A_king-main\\outputs\\level0_db3_baselines\\results.json"
+  results_path: "outputs/level0_db3_baselines/results.json"
 
 # --- 瀹為獙涓€: MCIA 琛ュ叏妯″瀷 (Multi-Channel Imputation with Axial-attention) ---
 # ============================================================

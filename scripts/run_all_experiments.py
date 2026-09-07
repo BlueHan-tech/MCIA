@@ -72,27 +72,8 @@ def _print_header(title: str) -> None:
     print(line, flush=True)
 
 
-def _conda_env_args() -> list[str]:
-    env_value = os.environ.get("CONDA_DEFAULT_ENV", "apple")
-    env_path = Path(env_value)
-    if env_path.exists() or env_path.is_absolute() or "/" in env_value or ":" in env_value:
-        return ["-p", env_value]
-    return ["-n", env_value]
-
-
 def _python_command(command: list[str]) -> list[str]:
-    current_python = Path(sys.executable)
-    current_prefix = Path(sys.prefix)
-    if current_python.exists() and current_prefix.name.lower() == "apple":
-        return [str(current_python), "-u", *command]
-
-    apple_python = Path(r"C:\Users\zouyuhan.pat\miniforge3\envs\apple\python.exe")
-    if apple_python.exists():
-        return [str(apple_python), "-u", *command]
-
-    conda_exe = Path(os.environ.get("CONDA_EXE", r"C:\Users\zouyuhan.pat\miniforge3\Scripts\conda.exe"))
-    if conda_exe.exists():
-        return [str(conda_exe), "run", *_conda_env_args(), "python", "-u", *command]
+    """Keep every stage in the environment used to launch the pipeline."""
     return [sys.executable, "-u", *command]
 
 
