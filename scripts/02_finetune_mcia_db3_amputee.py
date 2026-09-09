@@ -9,6 +9,7 @@ pretrained_finetuned（预训练+微调）：在相同 DB3 少样本数据上微
 
 import sys
 import time
+from hashlib import sha256
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -26,6 +27,7 @@ from torch.utils.data import DataLoader
 from data.dataset_db2_emg import EMGCompletionDataset
 from data.dataset_db3_emg import prepare_data_db3
 from data.ninapro_loader import NinaProDataLoader
+from utils.evaluation import validate_epoch_mcia_masked
 from utils.paper_pipeline import (
     build_mcia,
     build_mask_generator,
@@ -42,6 +44,48 @@ from utils.paper_pipeline import (
 
 def load_pretrained(model, checkpoint_path: Path, device: str) -> None:
     load_mcia_state_dict(model, checkpoint_path, device)
+
+
+CONDITION_MANIFEST_VERSION = "exp2_validation_selection_v1"
+
+
+def _sha256_file(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _seeded_mask_generator(config: dict, seed: int):
+    generator = build_mask_generator(config)
+    generator.rng = np.random.default_rng(int(seed))
+    return generator
+
+
+def _split_boundary_audit(repetitions: np.ndarray, train_idx: np.ndarray,
+                          val_idx: np.ndarray, test_idx: np.ndarray) -> dict:
+    train_set, val_set, test_set = map(set, (train_idx.tolist(), val_idx.tolist(), test_idx.tolist()))
+    if train_set & val_set or train_set & test_set or val_set & test_set:
+        raise ValueError("Exp2 repetition split overlap detected")
+    expected = {"train": {1, 3, 4}, "validation": {6}, "test": {2, 5}}
+    observed = {
+        "train": set(np.unique(repetitions[train_idx]).tolist()),
+        "validation": set(np.unique(repetitions[val_idx]).tolist()),
+        "test": set(np.unique(repetitions[test_idx]).tolist()),
+    }
+    if observed != expected:
+        raise ValueError(f"Unexpected Exp2 repetition boundaries: {observed}")
+    return {
+        "split_disjoint": True,
+        "repetitions": {key: sorted(values) for key, values in expected.items()},
+        "window_counts": {
+            "train": int(len(train_idx)), "validation": int(len(val_idx)), "test": int(len(test_idx)),
+        },
+        "optimization_data": "train windows only",
+        "checkpoint_selection_data": "validation windows only",
+        "test_data_usage": "held out from optimization and checkpoint selection",
+    }
 
 
 # ── Adapter（瓶颈残差，零初始化时等价于恒等映射）──
@@ -131,27 +175,47 @@ def make_optimizer(model, config, finetune: bool):
 
 
 
-def train_subject_model(model, loader, config, device, mask_gen, criterion, optimizer, epochs,
-                        domain_id: int = 1):
-    best_loss = float("inf")
+def train_subject_model(model, train_loader, val_loader, config, device, train_mask_gen, criterion,
+                        optimizer, epochs, validation_mask_seed: int, domain_id: int = 1):
+    selection_metric = str(config["transfer_selection_metric"])
+    selection_scenario = str(config["transfer_selection_scenario"])
+    best_value = float("inf")
     best_state = None
+    best_validation = None
     no_improve = 0
+    history = []
     for epoch in range(epochs):
-        loss = train_mcia_epoch(
+        train_loss = train_mcia_epoch(
             model,
-            loader,
+            train_loader,
             optimizer,
             device,
-            mask_gen,
+            train_mask_gen,
             criterion,
-            scenario=config.get("val_scenario", "s1"),
+            scenario=config["transfer_training_scenario"],
             cfg_dropout_prob=config.get("cfg_dropout_prob", 0.0),
             domain_id=domain_id,
             epoch=epoch,
         )
-        if loss < best_loss:
-            best_loss = loss
+        validation_mask_gen = _seeded_mask_generator(config, validation_mask_seed)
+        validation = validate_epoch_mcia_masked(
+            model, val_loader, device, validation_mask_gen, criterion,
+            scenario=selection_scenario, domain_id=domain_id,
+        )
+        selected_value = float(validation[selection_metric])
+        if not np.isfinite(selected_value):
+            raise RuntimeError(
+                f"Non-finite validation {selection_metric} at epoch {epoch + 1}: {selected_value}"
+            )
+        history.append({
+            "epoch": int(epoch + 1), "train_loss": float(train_loss),
+            "selection_metric": selection_metric, "selection_value": selected_value,
+            "validation": {key: float(value) for key, value in validation.items()},
+        })
+        if selected_value < best_value:
+            best_value = selected_value
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+            best_validation = validation
             no_improve = 0
         else:
             no_improve += 1
@@ -159,7 +223,7 @@ def train_subject_model(model, loader, config, device, mask_gen, criterion, opti
             break
     if best_state is not None:
         model.load_state_dict(best_state)
-    return best_loss, epoch + 1
+    return best_value, epoch + 1, best_validation, history
 
 
 def main():
@@ -180,10 +244,18 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     data_loader = NinaProDataLoader(config["db2_path"], config["db3_path"], fs=config["orig_fs"])
-    mask_gen = build_mask_generator(config)
     criterion = build_structural_loss(config, device)
 
-    summary = {"subjects": []}
+    summary = {
+        "condition_manifest_version": CONDITION_MANIFEST_VERSION,
+        "checkpoint_selection": {
+            "split": "validation repetition 6 only",
+            "metric": str(config["transfer_selection_metric"]),
+            "mode": "minimize",
+            "scenario": str(config["transfer_selection_scenario"]),
+        },
+        "subjects": [],
+    }
     start_time = time.time()
     print("=" * 80)
     print("[Exp2a] DB3 amputee few-shot MAE adaptation")
@@ -205,15 +277,24 @@ def main():
         train_idx = np.flatnonzero(np.isin(repetitions, config["transfer_train_repetitions"]))
         val_idx = np.flatnonzero(np.isin(repetitions, config["transfer_validation_repetitions"]))
         test_idx = np.flatnonzero(np.isin(repetitions, config["transfer_test_repetitions"]))
-        if len(train_idx) == 0:
-            print("  skipped: no few-shot training windows")
-            summary["subjects"].append({"subject_id": subject_id, "status": "skipped", "reason": "empty train split"})
+        if len(train_idx) == 0 or len(val_idx) == 0 or len(test_idx) == 0:
+            print("  skipped: incomplete fixed repetition split")
+            summary["subjects"].append({"subject_id": subject_id, "status": "skipped", "reason": "incomplete fixed repetition split"})
             continue
 
         train_set = EMGCompletionDataset(segments[train_idx])
+        val_set = EMGCompletionDataset(segments[val_idx])
         train_loader = DataLoader(train_set, batch_size=config["batch_size"], shuffle=True, num_workers=0)
+        val_loader = DataLoader(val_set, batch_size=config["batch_size"], shuffle=False, num_workers=0)
         subj_dir = out_dir / f"S{subject_id:02d}"
         subj_dir.mkdir(parents=True, exist_ok=True)
+
+        split_audit = _split_boundary_audit(repetitions, train_idx, val_idx, test_idx)
+        validation_mask_seed = (
+            int(config["transfer_random_seed"])
+            + int(config["transfer_selection_mask_seed_offset"])
+            + int(subject_id)
+        )
 
         results = {
             "subject_id": subject_id,
@@ -227,16 +308,33 @@ def main():
                 "source_exercises": [int(value) for value in config["transfer_exercises"]],
                 "normalization": segment_meta["normalization"],
             },
+            "data_boundary_audit": split_audit,
+            "normalization_stats": segment_meta.get("normalization_stats", []),
+            "quality_mask_reports": segment_meta.get("quality_mask_reports", []),
+            "checkpoint_selection": {
+                "metric": str(config["transfer_selection_metric"]),
+                "mode": "minimize",
+                "scenario": str(config["transfer_selection_scenario"]),
+                "mask_seed": validation_mask_seed,
+                "validation_repetitions": [int(value) for value in config["transfer_validation_repetitions"]],
+            },
         }
 
         # ── 直接迁移（Exp2b）：不微调，仅复制 DB2 检查点 ──
         import shutil
         dt_path = subj_dir / "direct_transfer.pth"
-        shutil.copy(pretrained_ckpt, dt_path)
-        results["direct_transfer"] = {"epochs": 0, "note": "DB2 healthy prior, no adaptation"}
+        shutil.copy2(pretrained_ckpt, dt_path)
+        results["direct_transfer"] = {
+            "epochs": 0, "note": "DB2 healthy prior, no adaptation",
+            "source_checkpoint_sha256": _sha256_file(pretrained_ckpt),
+            "checkpoint_sha256": _sha256_file(dt_path),
+            "domain_id": None, "adapters_loaded": False,
+        }
         print(f"  direct_transfer: copied {pretrained_ckpt.name}")
 
         # ── 健康预训练 + 截肢者微调（Exp2a pretrained_finetuned）──
+        pretrained_seed = int(config["transfer_random_seed"]) + int(subject_id) * 100 + 1
+        set_seed(pretrained_seed)
         model = build_mcia(config, device)
         load_pretrained(model, pretrained_ckpt, device)
         activate_adapters(
@@ -245,28 +343,74 @@ def main():
             bottleneck_dim=int(config.get("transfer_adapter_bottleneck", 32)),
         )
         optimizer = make_optimizer(model, config, finetune=True)
-        best_loss, epochs = train_subject_model(
-            model, train_loader, config, device, mask_gen, criterion, optimizer,
-            int(config["transfer_finetune_epochs"]), domain_id=1,
+        best_value, epochs, best_validation, history = train_subject_model(
+            model, train_loader, val_loader, config, device,
+            _seeded_mask_generator(config, pretrained_seed + int(config["transfer_training_mask_seed_offset"])),
+            criterion, optimizer, int(config["transfer_finetune_epochs"]),
+            validation_mask_seed, domain_id=1,
         )
-        torch.save({"model": model.state_dict(), "subject_id": subject_id, "mode": "pretrained_finetuned"},
-                   subj_dir / "pretrained_finetuned.pth")
-        results["pretrained_finetuned"] = {"best_train_loss": float(best_loss), "epochs": int(epochs)}
-        print(f"  pretrained_finetuned: loss={best_loss:.6f} epochs={epochs}")
+        ft_path = subj_dir / "pretrained_finetuned.pth"
+        torch.save({
+            "model": model.state_dict(), "subject_id": subject_id, "mode": "pretrained_finetuned",
+            "selection": {"metric": config["transfer_selection_metric"], "value": best_value,
+                          "scenario": config["transfer_selection_scenario"], "best_validation": best_validation},
+        }, ft_path)
+        results["pretrained_finetuned"] = {
+            "best_validation_value": float(best_value), "best_validation": best_validation,
+            "epochs": int(epochs), "history": history, "seed": pretrained_seed,
+            "checkpoint_sha256": _sha256_file(ft_path), "domain_id": 1, "adapters_loaded": True,
+        }
+        print(f"  pretrained_finetuned: val_{config['transfer_selection_metric']}={best_value:.6f} epochs={epochs}")
 
         # ── 仅截肢者训练，相同少样本窗口（Exp2a amputee_only）──
+        amputee_seed = int(config["transfer_random_seed"]) + int(subject_id) * 100 + 2
+        set_seed(amputee_seed)
         model = build_mcia(config, device)
         optimizer = make_optimizer(model, config, finetune=False)
-        best_loss, epochs = train_subject_model(
-            model, train_loader, config, device, mask_gen, criterion, optimizer,
-            int(config["transfer_amputee_only_epochs"]), domain_id=1,
+        best_value, epochs, best_validation, history = train_subject_model(
+            model, train_loader, val_loader, config, device,
+            _seeded_mask_generator(config, amputee_seed + int(config["transfer_training_mask_seed_offset"])),
+            criterion, optimizer, int(config["transfer_amputee_only_epochs"]),
+            validation_mask_seed, domain_id=1,
         )
-        torch.save({"model": model.state_dict(), "subject_id": subject_id, "mode": "amputee_only"},
-                   subj_dir / "amputee_only.pth")
-        results["amputee_only"] = {"best_train_loss": float(best_loss), "epochs": int(epochs)}
-        print(f"  amputee_only: loss={best_loss:.6f} epochs={epochs}")
+        ao_path = subj_dir / "amputee_only.pth"
+        torch.save({
+            "model": model.state_dict(), "subject_id": subject_id, "mode": "amputee_only",
+            "selection": {"metric": config["transfer_selection_metric"], "value": best_value,
+                          "scenario": config["transfer_selection_scenario"], "best_validation": best_validation},
+        }, ao_path)
+        results["amputee_only"] = {
+            "best_validation_value": float(best_value), "best_validation": best_validation,
+            "epochs": int(epochs), "history": history, "seed": amputee_seed,
+            "checkpoint_sha256": _sha256_file(ao_path), "domain_id": 1, "adapters_loaded": False,
+        }
+        print(f"  amputee_only: val_{config['transfer_selection_metric']}={best_value:.6f} epochs={epochs}")
 
-
+        condition_manifest = {
+            "version": CONDITION_MANIFEST_VERSION,
+            "subject_id": int(subject_id), "healthy_prior_checkpoint": str(pretrained_ckpt),
+            "healthy_prior_checkpoint_sha256": _sha256_file(pretrained_ckpt),
+            "implementation_sha256": {
+                "config": _sha256_file(PROJECT_ROOT / "config.yaml"),
+                "exp2_script": _sha256_file(Path(__file__)),
+                "db3_dataset": _sha256_file(PROJECT_ROOT / "data" / "dataset_db3_emg.py"),
+                "validation": _sha256_file(PROJECT_ROOT / "utils" / "evaluation.py"),
+            },
+            "data_boundary_audit": split_audit,
+            "normalization_stats": results["normalization_stats"],
+            "quality_mask_reports": results["quality_mask_reports"],
+            "quality_mask_data_boundary": {
+                "hard_zero_fit_repetitions": [1, 3, 4],
+                "mqp": "fixed per-input-second quality calculation; no optimization or checkpoint selection",
+            },
+            "checkpoint_selection": results["checkpoint_selection"],
+            "modes": {
+                mode: {key: value for key, value in results[mode].items() if key != "history"}
+                for mode in ("direct_transfer", "pretrained_finetuned", "amputee_only")
+            },
+        }
+        save_json(subj_dir / "conditions.json", condition_manifest)
+        results["condition_manifest"] = str(subj_dir / "conditions.json")
         save_json(subj_dir / "split.json", results)
         summary["subjects"].append({"status": "ok", **results})
 

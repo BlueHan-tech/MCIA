@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import Dataset
 from data.dataset_db2_emg import moving_average
 from utils.kinematic_target import KEY10_DIM, assert_key10_target, select_key10_angles
+from utils.db3_quality_mask import db3_quality_mask
 
 DEFAULT_TRAIN_REPS = (1, 3, 4)
 DEFAULT_VAL_REPS = (6,)
@@ -85,17 +86,19 @@ def prepare_kinematics_data(data_loader, subject_ids, config, exercises=(1,), db
     """Build exercise-separated windows with train-only EMG and glove scaling."""
     factor = int(config["orig_fs"] / config["target_fs"])
     window_size, stride = int(config["window_size"]), int(config["stride"])
-    all_emg, all_angle, all_subjects, all_reps, all_exercises, all_starts = [], [], [], [], [], []
+    all_emg, all_angle, all_subjects, all_reps, all_exercises, all_starts, all_masks = [], [], [], [], [], [], []
     print(f"\n[Kinematics Data Prep] {db.upper()}, exercises={list(exercises)}, {config['orig_fs']}Hz -> {config['target_fs']}Hz")
     for subject_id in subject_ids:
         try:
             prepared = []
             for exercise in exercises:
                 raw = _load_exercise(data_loader, subject_id, int(exercise), db)
+                quality_keep = (db3_quality_mask(raw["emg"], raw["labels"], raw["repetitions"], int(config["target_fs"]))[0]
+                                if db == "db3" else np.ones_like(_preprocess_emg(data_loader, raw["emg"], factor), dtype=np.float32))
                 emg = _preprocess_emg(data_loader, raw["emg"], factor)
                 glove, labels, repetitions = raw["glove"][::factor], raw["labels"][::factor], raw["repetitions"][::factor]
                 n = min(len(emg), len(glove), len(labels), len(repetitions))
-                prepared.append({"exercise": raw["exercise"], "emg": emg[:n], "glove": glove[:n],
+                prepared.append({"exercise": raw["exercise"], "emg": emg[:n], "quality_mask": quality_keep[:n], "glove": glove[:n],
                                  "rows": _window_rows(labels[:n], repetitions[:n], window_size, stride)})
             train_emg = [item["emg"][start:start+window_size] for item in prepared for start, rep in item["rows"] if rep in DEFAULT_TRAIN_REPS]
             train_glove = [item["glove"][start:start+window_size] for item in prepared for start, rep in item["rows"] if rep in DEFAULT_TRAIN_REPS]
@@ -105,12 +108,12 @@ def prepare_kinematics_data(data_loader, subject_ids, config, exercises=(1,), db
             emg_max = float(train_emg.max())
             def compress(values):
                 return values if emg_max <= 0 else np.log1p(255.0*values/emg_max)/np.log1p(255.0)*emg_max
-            q05, q95 = np.percentile(compress(train_emg), [5, 95])
+            q05, q99 = np.percentile(compress(train_emg), [5, 99])
             glove_min = train_glove.min(0, keepdims=True)
             glove_scale = np.maximum(train_glove.max(0, keepdims=True)-glove_min, 1e-8)
             count = 0
             for item in prepared:
-                emg_norm = np.clip((compress(item["emg"])-q05)/(q95-q05+1e-8), 0.0, 1.0)
+                emg_norm = np.clip((compress(item["emg"])-q05)/(q99-q05+1e-8), 0.0, 1.0)
                 angle = select_key10_angles((item["glove"]-glove_min)/glove_scale)
                 for start, rep in item["rows"]:
                     end = start + window_size
@@ -118,6 +121,7 @@ def prepare_kinematics_data(data_loader, subject_ids, config, exercises=(1,), db
                     all_angle.append(angle[start:end].astype(np.float32, copy=False))
                     all_subjects.append(int(subject_id)); all_reps.append(int(rep))
                     all_exercises.append(int(item["exercise"])); all_starts.append(int(start)); count += 1
+                    all_masks.append(item["quality_mask"][start:end].astype(np.float32, copy=False))
             print(f"  S{subject_id:02d}: {count} paired Key10 ({KEY10_DIM}-D) windows")
         except Exception as exc:
             print(f"  S{subject_id:02d}: FAILED - {exc}")
@@ -128,5 +132,6 @@ def prepare_kinematics_data(data_loader, subject_ids, config, exercises=(1,), db
         return values
     return (*values, {"exercise": np.asarray(all_exercises, dtype=np.int16),
                       "start": np.asarray(all_starts, dtype=np.int64),
-                      "normalization": "train_repetitions_1_3_4_only",
+                      "quality_mask": np.stack(all_masks).astype(np.float32),
+                      "normalization": "train_repetitions_1_3_4_q5_q99_only",
                       "window_policy": "exercise_separated_single_nonzero_repetition"})

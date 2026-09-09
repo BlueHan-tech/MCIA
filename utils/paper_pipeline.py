@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import random
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Iterable, Optional, Tuple
 
 import numpy as np
 import torch
@@ -69,10 +69,25 @@ def build_mcia(config: Dict, device: str) -> MCIA:
     ).to(device)
 
 
-def load_mcia_state_dict(model: MCIA, checkpoint_path, device: str) -> None:
-    """加载 MCIA 权重，并对 domain_embed / mask_token 的形状不匹配做兼容处理。"""
+def load_mcia_state_dict(
+    model: MCIA,
+    checkpoint_path,
+    device: str,
+    required_state_prefixes: Optional[Iterable[str]] = None,
+) -> None:
+    """Load MCIA weights, optionally requiring checkpoint modules used at inference."""
     ckpt = torch.load(checkpoint_path, map_location=device)
     state = ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt
+    required_prefixes = tuple(required_state_prefixes or ())
+    missing_required = [
+        prefix for prefix in required_prefixes
+        if not any(key.startswith(prefix) for key in state)
+    ]
+    if missing_required:
+        raise ValueError(
+            f"Checkpoint {checkpoint_path} is missing required inference weights: "
+            f"{missing_required}"
+        )
 
     if "domain_embed.weight" in state:
         ckpt_w = state["domain_embed.weight"]
@@ -89,6 +104,15 @@ def load_mcia_state_dict(model: MCIA, checkpoint_path, device: str) -> None:
     model_state = model.state_dict()
 
     unexpected = [k for k in list(state.keys()) if k not in model_state]
+    dropped_required = [
+        key for key in unexpected
+        if any(key.startswith(prefix) for prefix in required_prefixes)
+    ]
+    if dropped_required:
+        raise ValueError(
+            f"Checkpoint {checkpoint_path} contains required weights that do not match "
+            f"the instantiated inference model: {dropped_required}"
+        )
     for k in unexpected:
         del state[k]
     if unexpected:
@@ -270,7 +294,7 @@ def complete_with_mask(
         raw_time_mask=mask,
         domain_id=domain_id_t,
     )
-    return pred * (1.0 - mask) + emg * mask
+    return pred.clamp(0.0, 1.0) * (1.0 - mask) + emg * mask
 
 
 def safe_pearson_np(a: np.ndarray, b: np.ndarray) -> float:

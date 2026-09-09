@@ -47,7 +47,6 @@ from utils.paper_pipeline import (
     save_json,
     set_seed,
 )
-from utils.rule_anomaly_detector import RuleAnomalyDetector
 from utils.kinematic_output_postprocess import (
     continuous_trajectory_quality,
     postprocess_window_predictions,
@@ -67,6 +66,10 @@ from utils.kinematic_target import (
 
 ANGLE_SUBSETS = KEY10_SUBSETS
 ANGLE_PLOT_GROUPS = KEY10_PLOT_GROUPS
+# Prediction files carrying Group C must record the inference contract.  This
+# prevents a resume from mixing legacy C predictions (which may have omitted
+# the adapter or DB3 domain condition) with the corrected experiment.
+C_INFERENCE_CONTRACT = "adapter_loaded_domain_id_1_v1"
 
 
 class TransferAdapter(nn.Module):
@@ -187,11 +190,16 @@ def _exp1_checkpoint_candidates(config):
     return candidates
 
 
+def _adapter_state_prefixes(model, config, device):
+    attach_transfer_adapters(model, config, device)
+    n_blocks = int(config.get("transfer_adapter_blocks", 2))
+    return tuple(f"blocks.{index}.adapter." for index in range(len(model.blocks) - n_blocks, len(model.blocks)))
+
+
 def _load_mcia_from_checkpoint(config, device, checkpoint_path, label, attach_adapters=False):
     model = build_mcia(config, device)
-    if attach_adapters:
-        attach_transfer_adapters(model, config, device)
-    load_mcia_state_dict(model, checkpoint_path, device)
+    prefixes = _adapter_state_prefixes(model, config, device) if attach_adapters else ()
+    load_mcia_state_dict(model, checkpoint_path, device, required_state_prefixes=prefixes)
     model.eval()
     print(f"  [MCIA:{label}] Loaded: {checkpoint_path}")
     return model, checkpoint_path
@@ -207,43 +215,45 @@ def load_healthy_prior_mcia(config, device):
 
 def load_subject_finetuned_mcia(subject_id, config, device):
     subject_dir = Path(config["transfer_checkpoints_dir"]) / f"S{subject_id:02d}"
-    candidates = [
-        subject_dir / "pretrained_finetuned.pth",
-        subject_dir / "direct_transfer.pth",
-    ]
-    candidates += _exp1_checkpoint_candidates(config)
-
-    for path in candidates:
-        if path.exists():
-            label = f"S{subject_id:02d}_subject_ft"
-            return _load_mcia_from_checkpoint(config, device, path, label, True)
-    print(f"  [MCIA:C] No checkpoint found for S{subject_id:02d}; Group C will be skipped")
+    path = subject_dir / "pretrained_finetuned.pth"
+    if path.exists():
+        label = f"S{subject_id:02d}_subject_ft"
+        return _load_mcia_from_checkpoint(config, device, path, label, True)
+    print(f"  [MCIA:C] No subject-finetuned checkpoint found for S{subject_id:02d}; Group C will be skipped")
     return None, None
 
 
 @torch.no_grad()
-def apply_mcia(mcia_model, emg_windows, detector, device, batch_size=64):
+def apply_mcia(mcia_model, emg_windows, masks, device, batch_size=64, domain_id=None):
     N, T, C = emg_windows.shape
     enhanced = np.empty_like(emg_windows)
     for start in range(0, N, batch_size):
         batch_np = emg_windows[start:start + batch_size]
         B = len(batch_np)
-        masks_np = np.stack([detector.detect(batch_np[i]) for i in range(B)])
+        masks_np = masks[start:start + B]
         mask_t = torch.FloatTensor(masks_np).to(device)
         emg_t = torch.FloatTensor(batch_np).to(device)
         emg_masked = emg_t * mask_t
         chan_valid = (mask_t.mean(dim=1) > 0.5).float()
-        pred = mcia_model(emg_masked, raw_time_mask=mask_t, chan_valid_mask=chan_valid)
-        enh = pred * (1.0 - mask_t) + emg_t * mask_t
+        domain_t = (
+            torch.full((B,), int(domain_id), dtype=torch.long, device=device)
+            if domain_id is not None else None
+        )
+        pred = mcia_model(
+            emg_masked, raw_time_mask=mask_t, chan_valid_mask=chan_valid, domain_id=domain_t
+        )
+        enh = pred.clamp(0.0, 1.0) * (1.0 - mask_t) + emg_t * mask_t
         enhanced[start:start + B] = enh.cpu().numpy()
     return enhanced
 
 
-def make_enhanced_pool(mcia_model, raw_emg, train_idx, val_idx, test_idx, detector, device):
+def make_enhanced_pool(mcia_model, raw_emg, train_idx, val_idx, test_idx, masks, device, domain_id=None):
     enhanced = raw_emg.copy()
     for idx in (train_idx, val_idx, test_idx):
         if len(idx) > 0:
-            enhanced[idx] = apply_mcia(mcia_model, raw_emg[idx], detector, device)
+            enhanced[idx] = apply_mcia(
+                mcia_model, raw_emg[idx], masks[idx], device, domain_id=domain_id
+            )
     return enhanced
 
 
@@ -1067,6 +1077,18 @@ def _prediction_has_groups(npz_path: Path, run_groups: set[str]) -> bool:
         return False
     with np.load(npz_path) as data:
         assert_key10_prediction_payload(data, str(npz_path))
+        if "C" in run_groups and "pred_C" in data:
+            contract_key = "mcia_c_inference_contract"
+            observed = (
+                str(np.asarray(data[contract_key]).item())
+                if contract_key in data else None
+            )
+            if observed != C_INFERENCE_CONTRACT:
+                raise RuntimeError(
+                    f"Legacy Group C prediction at {npz_path} has inference contract "
+                    f"{observed!r}, expected {C_INFERENCE_CONTRACT!r}. "
+                    "Do not resume it; create a fresh run for the corrected C condition."
+                )
         return all(f"pred_{grp}" in data for grp in run_groups)
 
 
@@ -1319,14 +1341,9 @@ def main():
             group_calibrations = {}
             group_target = None
 
-            detector = RuleAnomalyDetector(
-                patch_size=config.get("patch_size", 8),
-                group_indices=config.get("group_indices"),
-            ).fit(raw_emg[train_idx])
-            dead_ch = np.where(detector.theta_dead)[0].tolist()
-            if dead_ch:
-                print(f"  Rule detector dead channels (1-based): {[int(c + 1) for c in dead_ch]}")
-                subj_result["dead_channels"] = dead_ch
+            quality_masks = window_meta["quality_mask"]
+            subj_result["quality_mask_rule"] = "hard_zero_train_1_3_4_or_gronlund_2005_mqp_p_gt_0_20"
+            subj_result["quality_mask_ratio"] = float((quality_masks < 0.5).mean())
 
             if "A" in run_groups:
                 _log(log_path, f"S{subject_id:02d} group A train")
@@ -1349,14 +1366,17 @@ def main():
             if "B" in run_groups and healthy_mcia is not None:
                 _log(log_path, f"S{subject_id:02d} group B enhance/train")
                 print("  Building Group B enhanced EMG with healthy-prior MCIA...")
-                enh_B = make_enhanced_pool(healthy_mcia, raw_emg, train_idx, val_idx, test_idx, detector, device)
+                enh_B = make_enhanced_pool(
+                    healthy_mcia, raw_emg, train_idx, val_idx, test_idx, quality_masks, device, domain_id=None
+                )
                 subj_ckpt_dir = ckpt_dir / f"S{subject_id:02d}"
                 subj_ckpt_dir.mkdir(parents=True, exist_ok=True)
                 result_B, subs_B, pred_B, tgt_B, calibration_B = evaluate_group(
                     "B", enh_B, angle, train_idx, val_idx, test_idx, config, device,
                     subj_ckpt_dir / "tcn_B_healthy_prior_best.pth",
                     subject_id,
-                    {"input": "enhanced", "mcia_source": "healthy_prior", "mcia_checkpoint": str(healthy_ckpt)},
+                    {"input": "enhanced", "mcia_source": "healthy_prior", "mcia_checkpoint": str(healthy_ckpt),
+                     "mcia_domain_id": None, "mcia_adapters_loaded": False},
                 )
                 subj_result["groups"]["B"] = result_B
                 subj_subsets["B"] = subs_B
@@ -1372,14 +1392,17 @@ def main():
                 subject_mcia, subject_ckpt = load_subject_finetuned_mcia(subject_id, config, device)
                 if subject_mcia is not None:
                     print("  Building Group C enhanced EMG with subject-finetuned MCIA...")
-                    enh_C = make_enhanced_pool(subject_mcia, raw_emg, train_idx, val_idx, test_idx, detector, device)
+                    enh_C = make_enhanced_pool(
+                        subject_mcia, raw_emg, train_idx, val_idx, test_idx, quality_masks, device, domain_id=1
+                    )
                     subj_ckpt_dir = ckpt_dir / f"S{subject_id:02d}"
                     subj_ckpt_dir.mkdir(parents=True, exist_ok=True)
                     result_C, subs_C, pred_C, tgt_C, calibration_C = evaluate_group(
                         "C", enh_C, angle, train_idx, val_idx, test_idx, config, device,
                         subj_ckpt_dir / "tcn_C_subject_ft_best.pth",
                         subject_id,
-                        {"input": "enhanced", "mcia_source": "subject_finetuned", "mcia_checkpoint": str(subject_ckpt)},
+                        {"input": "enhanced", "mcia_source": "subject_finetuned", "mcia_checkpoint": str(subject_ckpt),
+                         "mcia_domain_id": 1, "mcia_adapters_loaded": True},
                     )
                     subj_result["groups"]["C"] = result_C
                     subj_subsets["C"] = subs_C
@@ -1436,6 +1459,8 @@ def main():
                 pred_payload["dynamic_test_scores"] = dynamic_test_scores
             for grp, pred in group_preds.items():
                 pred_payload[f"pred_{grp}"] = pred
+            if "C" in group_preds:
+                pred_payload["mcia_c_inference_contract"] = np.asarray(C_INFERENCE_CONTRACT)
             if group_target is not None:
                 np.savez(npz_path, **pred_payload)
                 _log(log_path, f"S{subject_id:02d} prediction saved: {npz_path}")

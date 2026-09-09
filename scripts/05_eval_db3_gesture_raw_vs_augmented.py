@@ -30,7 +30,7 @@ from data.dataset_db2_emg import moving_average
 from data.ninapro_loader import NinaProDataLoader
 from models.prediction.kinematic_regressor import TemporalBlock
 from utils.paper_pipeline import build_mcia, flatten_pipeline_config, load_mcia_state_dict, load_yaml_config, set_seed
-from utils.rule_anomaly_detector import RuleAnomalyDetector
+from utils.db3_quality_mask import db3_quality_mask
 
 
 def set_reproducible_seed(seed: int) -> None:
@@ -47,6 +47,7 @@ class GestureWindows:
     labels: np.ndarray
     repetitions: np.ndarray
     starts: np.ndarray
+    quality_mask: np.ndarray
 
 
 class GestureDataset(Dataset):
@@ -107,6 +108,10 @@ def load_db3_windows(loader: NinaProDataLoader, subject_id: int, exercise: int, 
                      min_label_ratio: float, min_repetition_ratio: float) -> GestureWindows:
     """Create action-pure windows using train-repetition-only input scaling."""
     data = loader.load_db3_subject(subject_id, [exercise])
+    quality_keep, quality_report = db3_quality_mask(
+        data["emg"], data.get("restimulus", data.get("stimulus")), data["repetition"],
+        int(config["target_fs"]), tuple(int(v) for v in config["gesture_action_ids"]),
+    )
     emg = loader.notch_filter(loader.bandpass_filter(data["emg"].astype(np.float32) * 1000.0))
     factor = int(config["orig_fs"] / config["target_fs"])
     emg_down = moving_average(np.abs(emg), factor)[::factor]
@@ -114,7 +119,7 @@ def load_db3_windows(loader: NinaProDataLoader, subject_id: int, exercise: int, 
     repetitions = np.asarray(data["repetition"])[::factor].reshape(-1)
     n_samples = min(len(emg_down), len(labels), len(repetitions))
     size, stride, center = int(config["window_size"]), int(config["stride"]), int(config["window_size"]) // 2
-    raw_windows, window_labels, window_reps, starts = [], [], [], []
+    raw_windows, window_labels, window_reps, starts, masks = [], [], [], [], []
     for start in range(0, n_samples - size + 1, stride):
         end = start + size
         label_window, rep_window = labels[start:end], repetitions[start:end]
@@ -124,6 +129,7 @@ def load_db3_windows(loader: NinaProDataLoader, subject_id: int, exercise: int, 
         if np.mean(label_window == label) < min_label_ratio or np.mean(rep_window == repetition) < min_repetition_ratio:
             continue
         raw_windows.append(emg_down[start:end].astype(np.float32, copy=False))
+        masks.append(quality_keep[start:end])
         window_labels.append(label); window_reps.append(repetition); starts.append(start)
     if not raw_windows:
         raise ValueError(f"S{subject_id:02d} has no action-pure gesture windows")
@@ -134,10 +140,11 @@ def load_db3_windows(loader: NinaProDataLoader, subject_id: int, exercise: int, 
     def compress(values):
         return values if emg_max <= 0.0 else np.log1p(255.0 * values / emg_max) / np.log1p(255.0) * emg_max
     train_values = compress(train_values)
-    q05, q95 = np.percentile(train_values, [5, 95])
-    emg_norm = np.clip((compress(raw_windows) - q05) / (q95 - q05 + 1e-8), 0.0, 1.0).astype(np.float32)
+    q05, q99 = np.percentile(train_values, [5, 99])
+    emg_norm = np.clip((compress(raw_windows) - q05) / (q99 - q05 + 1e-8), 0.0, 1.0).astype(np.float32)
     return GestureWindows(emg_norm, np.asarray(window_labels, dtype=np.int64),
-                          window_reps, np.asarray(starts, dtype=np.int64))
+                          window_reps, np.asarray(starts, dtype=np.int64),
+                          np.stack(masks).astype(np.float32)), quality_report
 
 
 def split_indices(repetitions: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -176,19 +183,18 @@ def healthy_checkpoint(config: dict) -> Path:
 
 
 @torch.no_grad()
-def apply_mcia(mcia: nn.Module, raw_windows: np.ndarray, detector: RuleAnomalyDetector,
-               device: str, batch_size: int) -> tuple[np.ndarray, dict]:
-    metadata = detector.detect_batch(raw_windows)
-    masks = metadata["mask"].astype(np.float32, copy=False)
+def apply_mcia(mcia: nn.Module, raw_windows: np.ndarray, masks: np.ndarray,
+               device: str, batch_size: int, domain_id: int | None = None) -> tuple[np.ndarray, dict]:
     enhanced = np.empty_like(raw_windows)
     for start in range(0, len(raw_windows), batch_size):
         stop = min(start + batch_size, len(raw_windows))
         raw = torch.as_tensor(raw_windows[start:stop], dtype=torch.float32, device=device)
         mask = torch.as_tensor(masks[start:stop], dtype=torch.float32, device=device)
         valid_channels = (mask.mean(dim=1) > 0.5).float()
-        completed = mcia(raw * mask, raw_time_mask=mask, chan_valid_mask=valid_channels)
-        enhanced[start:stop] = (completed * (1.0 - mask) + raw * mask).cpu().numpy()
-    return enhanced, metadata
+        domain = torch.full((len(raw),), domain_id, dtype=torch.long, device=device) if domain_id is not None else None
+        completed = mcia(raw * mask, raw_time_mask=mask, chan_valid_mask=valid_channels, domain_id=domain)
+        enhanced[start:stop] = (completed.clamp(0.0, 1.0) * (1.0 - mask) + raw * mask).cpu().numpy()
+    return enhanced, {"mask": masks}
 
 
 def metrics(y_true: np.ndarray, y_pred: np.ndarray, n_classes: int) -> dict:
@@ -292,11 +298,10 @@ def save_confusion_plot(matrix: np.ndarray, action_ids: list[int], title: str, p
 
 
 def mask_summary(metadata: dict) -> dict:
-    labels = metadata["labels"]
+    mask = metadata["mask"]
     return {
-        "masked_token_ratio": float((labels != 0).mean()),
-        "windows_with_any_mask_ratio": float((labels != 0).any(axis=(1, 2)).mean()),
-        "labels": {str(key): float((labels == key).mean()) for key in range(1, 5)},
+        "masked_token_ratio": float((mask < 0.5).mean()),
+        "windows_with_any_mask_ratio": float((mask < 0.5).any(axis=(1, 2)).mean()),
     }
 
 
@@ -306,7 +311,11 @@ def _load_subject_finetuned_mcia(subject_id: int, config: dict, device: str) -> 
         raise FileNotFoundError(f"Missing subject-finetuned MCIA checkpoint: {path}")
     model = build_mcia(config, device)
     attach_transfer_adapters(model, config, device)
-    load_mcia_state_dict(model, path, device)
+    n_blocks = int(config.get("transfer_adapter_blocks", 2))
+    required_prefixes = tuple(
+        f"blocks.{index}.adapter." for index in range(len(model.blocks) - n_blocks, len(model.blocks))
+    )
+    load_mcia_state_dict(model, path, device, required_state_prefixes=required_prefixes)
     model.eval()
     return model, path
 
@@ -333,7 +342,7 @@ def main() -> None:
         "split": {"train_repetitions": [1, 3, 4], "validation_repetitions": [6], "test_repetitions": [2, 5]},
         "leakage_control": {
             "window_policy": "action/repetition pure windows; no cross-exercise windows",
-            "detector_fit": "per subject and exercise, training repetitions only",
+            "quality_mask": "hard zero channels fitted on training repetitions 1/3/4; fixed MQP p>0.20 evaluated per input second",
             "normalization": "per subject and exercise, train-free EMG preprocessing; no labels enter enhancement",
             "model_selection": "validation macro-F1 only",
         },
@@ -343,29 +352,27 @@ def main() -> None:
     for subject_id in config["gesture_subjects"]:
         print(f"\n[Gesture] DB3 S{subject_id:02d}", flush=True)
         c_mcia, c_path = _load_subject_finetuned_mcia(subject_id, config, device)
-        raw_parts, b_parts, c_parts, labels_parts, reps_parts, starts_parts = [], [], [], [], [], []
+        raw_parts, b_parts, c_parts, labels_parts, reps_parts, starts_parts, quality_parts = [], [], [], [], [], [], []
         detector_report = {}
         for exercise in config["gesture_exercises"]:
-            one = load_db3_windows(loader, subject_id, int(exercise), config,
+            one, quality_report = load_db3_windows(loader, subject_id, int(exercise), config,
                                    float(config["gesture_min_label_ratio"]),
                                    float(config["gesture_min_repetition_ratio"]))
             keep = np.isin(one.labels, action_ids_expected)
-            one = GestureWindows(one.emg[keep], one.labels[keep], one.repetitions[keep], one.starts[keep])
-            train_idx, _, _ = split_indices(one.repetitions)
-            detector = RuleAnomalyDetector(patch_size=int(config["patch_size"]),
-                                           group_indices=config.get("group_indices")).fit(one.emg[train_idx])
-            b_values, b_meta = apply_mcia(healthy_mcia, one.emg, detector, device,
-                                          int(config["regressor_batch_size"]))
-            c_values, c_meta = apply_mcia(c_mcia, one.emg, detector, device,
-                                          int(config["regressor_batch_size"]))
+            one = GestureWindows(one.emg[keep], one.labels[keep], one.repetitions[keep], one.starts[keep], one.quality_mask[keep])
+            b_values, b_meta = apply_mcia(healthy_mcia, one.emg, one.quality_mask, device,
+                                          int(config["regressor_batch_size"]), domain_id=None)
+            c_values, c_meta = apply_mcia(c_mcia, one.emg, one.quality_mask, device,
+                                          int(config["regressor_batch_size"]), domain_id=1)
             raw_parts.append(one.emg); b_parts.append(b_values); c_parts.append(c_values)
-            labels_parts.append(one.labels); reps_parts.append(one.repetitions); starts_parts.append(one.starts)
+            labels_parts.append(one.labels); reps_parts.append(one.repetitions); starts_parts.append(one.starts); quality_parts.append(one.quality_mask)
             detector_report[f"E{exercise}"] = {
-                "dead_channels_one_based": [int(value) + 1 for value in np.flatnonzero(detector.dead_channels_)],
+                "two_layer_quality_mask": quality_report,
                 "healthy_mask": mask_summary(b_meta), "subject_ft_mask": mask_summary(c_meta),
             }
         windows = GestureWindows(np.concatenate(raw_parts), np.concatenate(labels_parts),
-                                 np.concatenate(reps_parts), np.concatenate(starts_parts))
+                                 np.concatenate(reps_parts), np.concatenate(starts_parts),
+                                 np.concatenate(quality_parts))
         train_idx, val_idx, test_idx = split_indices(windows.repetitions)
         mapping, action_ids = class_mapping(windows.labels[train_idx])
         if action_ids != action_ids_expected:

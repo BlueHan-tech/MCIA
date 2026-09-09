@@ -1,3 +1,27 @@
+## 2026-09-08
+
+- 修复 DB3 个体适配 C 组的推理契约：增强生成、连续角度和手势识别均在加载匹配 adapter 后使用 `domain_id=1`；健康先验 B 组保持无 adapter、无 domain 条件。C checkpoint 缺少或无法加载 adapter 权重时显式报错，避免静默退化为健康先验或跳过适配参数。
+
+- Exp2 DB3 个体适配改为只以 repetition 6 的固定验证掩码按 `loss_for_early_stop` 选择 checkpoint，不再以训练损失选择；每位被试者落盘 `conditions.json`，记录数据划分断言、归一化统计来源、质量掩码、验证契约、随机种子和配置/实现/checkpoint 哈希。
+
+- 手势识别主链路改用 DB3 两层质量掩码：训练 repetitions 的严格零值硬缺失与 Gronlund（2005）MQP 固定 p>0.20 的逐通道一秒异常段取并集；补全、保存与下游输入共享该掩码，并将固定 48 类被试及其受试者适配范围扩展至 S02/S03/S04/S05/S06/S07/S08/S09/S11。
+
+- 将相同 DB3 两层质量掩码同步到 Exp2c 增强 EMG 生成和 Exp3 连续角度 A/B/C 的补全输入，移除这两条主链路对旧 RuleAnomalyDetector 的依赖。
+
+- 新增独立只读诊断脚本，逐公式复现 Gronlund 等（2005）的 MQP 多通道 sEMG 质量估计，并限定用于 DB3 固定 48 类被试的训练 repetitions；不修改主异常掩码、MCIA 或下游实验链路。
+
+- 配置全局 GitHub MCP 为官方 repos 只读入口及七个仓库/代码读取工具，新增认证说明；TOML 和 Codex 配置读取验证通过，缺少 PAT，尚未验证远程访问。
+
+- 在 DB2 S01/S02、E1、训练 repetitions 1/3/4 和验证 repetition 6 上完成 Q95/Q97.5/Q99 的固定初始化、掩码和训练预算补全对比。Q99 的饱和比例及验证 RMSE/MAE 最低，用户确认采用；主链路的 DB2/DB3 补全、角度/手势输入及共同鲁棒归一化工具统一改为 Q5/Q99，移除候选分位数诊断路径。未使用测试 repetitions，未改写历史产物。
+
+- 在 DB2 验证被试 S29 的 512 个窗口上，以相同 checkpoint、S3 掩码和输出头线性参数完成 Softplus 原始输出、Softplus+clip 与直接替换 Sigmoid 的开发性推理对比；clip 降低 masked MSE/MAE 并提高 masked correlation，Sigmoid 的 masked MSE/MAE 更高。未读取 DB2 测试被试，未写入 run 或 checkpoint。新增可复现的限定诊断脚本。
+
+- 统一 MCIA 补全后处理：预测裁剪至 [0,1] 后复制回观测值，覆盖补全生成、重建评估/绘图、角度与手势输入及引导推理；保留 Softplus、checkpoint 和训练计算，不改写历史产物。新增合成超界输入的调用路径检查，在 Windows py311 环境通过语法检查、输出范围/观测复制/参数严格加载检查、Matplotlib 诊断与实际补全绘图 smoke；未运行完整主流程或下游有效性实验，本变更仅修正输出范围。
+
+- 接入全局科研证据规则、academic-research Skill 和独立 Semantic Scholar MCP，在项目 AGENTS.md 增加路由及安装说明；验证全局发现、配置读取与 MCP 握手，记录公共搜索 429 限流及网页原文备用路径通过，未改动实验代码或 conda 环境。
+
+- 将 AGENTS.md 拆分为通用规则与 source-of-truth 路由，新增实验协议及 Windows、绘图、可复现专项规则；整理当前实现并标明待锁定的主终点，未修改实验代码或配置。
+
 ## 2026-09-07
 
 - Configure DB2/DB3 under F:/A-SCI, use project-local metadata/output paths, and keep pipeline subprocesses in the active Python environment. Add a bounded real-data setup check.

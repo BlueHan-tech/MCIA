@@ -143,12 +143,12 @@ def prepare_data_db2(data_loader, subject_ids, config, exercises=[1]):
             if calib_rep_mask.sum() > 0:
                 emg_calib = emg_down[calib_rep_mask]
                 q05 = np.percentile(emg_calib, 5)
-                q95 = np.percentile(emg_calib, 95)
+                q99 = np.percentile(emg_calib, 99)
             else:
                 q05 = np.percentile(emg_down, 5)
-                q95 = np.percentile(emg_down, 95)
+                q99 = np.percentile(emg_down, 99)
             
-            scale = (q95 - q05) + 1e-8
+            scale = (q99 - q05) + 1e-8
             emg_norm = (emg_down - q05) / scale
             emg_norm = np.clip(emg_norm, 0.0, 1.0)
 

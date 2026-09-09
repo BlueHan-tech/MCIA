@@ -96,8 +96,8 @@ def load_db3_windows(loader: NinaProDataLoader, subject_id: int, exercise: int, 
     emg_max = float(emg_down.max())
     if emg_max > 0.0:
         emg_down = np.log1p(255.0 * emg_down / emg_max) / np.log1p(255.0) * emg_max
-    q05, q95 = np.percentile(emg_down, [5, 95])
-    emg_norm = np.clip((emg_down - q05) / (q95 - q05 + 1e-8), 0.0, 1.0)
+    q05, q99 = np.percentile(emg_down, [5, 99])
+    emg_norm = np.clip((emg_down - q05) / (q99 - q05 + 1e-8), 0.0, 1.0)
 
     labels = np.asarray(data.get("restimulus", data.get("stimulus")))[::factor].reshape(-1)
     repetitions = np.asarray(data.get("repetition"))[::factor].reshape(-1)

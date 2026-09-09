@@ -72,8 +72,8 @@ def preprocess_and_segment_exercise(data_loader: NinaProDataLoader, subject_id: 
         emg_down = (np.log1p(mu * emg_normalized_temp) / np.log1p(mu)) * emg_max
 
     q05 = np.percentile(emg_down, 5)
-    q95 = np.percentile(emg_down, 95)
-    emg_norm = (emg_down - q05) / ((q95 - q05) + 1e-8)
+    q99 = np.percentile(emg_down, 99)
+    emg_norm = (emg_down - q05) / ((q99 - q05) + 1e-8)
     emg_norm = np.clip(emg_norm, 0.0, 1.0)
 
     segments = []

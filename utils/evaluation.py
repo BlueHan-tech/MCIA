@@ -97,7 +97,7 @@ def validate_epoch_mcia(model, dataloader, device, mask_gen, criterion,
                 side=side, age=age, gender=gender,
                 raw_time_mask=mask_binary,
             )
-            emg_pred = emg_pred * (1 - mask_binary) + emg_clean * mask_binary
+            emg_pred = emg_pred.clamp(0.0, 1.0) * (1 - mask_binary) + emg_clean * mask_binary
             
             if criterion is not None:
                 loss, _ = criterion(emg_pred, emg_clean, mask_binary)
@@ -111,7 +111,7 @@ def validate_epoch_mcia(model, dataloader, device, mask_gen, criterion,
 
 def validate_epoch_mcia_masked(model, dataloader, device, mask_gen, criterion=None,
                               difficulty=1.0, cfg_dropout_prob=0.0, scenario=None,
-                              use_personal_condition=False):
+                              use_personal_condition=False, domain_id=None):
     """聚焦缺失区域的验证。
 
     返回用于模型选择与日志记录的指标。
@@ -155,14 +155,22 @@ def validate_epoch_mcia_masked(model, dataloader, device, mask_gen, criterion=No
             emg_masked = emg_clean * mask
             mask_1d = derive_ch_mask_from_sample_mask(mask)
 
-            drop_condition = torch.rand(1).item() < cfg_dropout_prob
+            # Validation must be deterministic for checkpoint selection.  The
+            # caller supplies a separately seeded mask generator; classifier-
+            # free condition dropout is a training-only perturbation.
+            _ = cfg_dropout_prob
+            drop_condition = False
+            domain_id_t = (
+                torch.full((B,), int(domain_id), dtype=torch.long, device=device)
+                if domain_id is not None else None
+            )
             emg_pred = model(
                 emg_masked, mask=mask_1d, x_masked=emg_masked,
                 drop_condition=drop_condition,
                 side=side, age=age, gender=gender,
-                raw_time_mask=mask,
+                raw_time_mask=mask, domain_id=domain_id_t,
             )
-            emg_completed = emg_pred * (1.0 - mask) + emg_clean * mask
+            emg_completed = emg_pred.clamp(0.0, 1.0) * (1.0 - mask) + emg_clean * mask
 
             diff = emg_completed - emg_clean
             if missing.any():
@@ -356,14 +364,14 @@ def evaluate_subject(model, ddpm, dataloader, device, mask_gen, difficulty=1.0,
                         raw_time_mask=mask,
                         side=side, age=age, gender=gender,
                     )
-                emg_completed = emg_t * (1 - mask) + emg_clean * mask
+                emg_completed = emg_t.clamp(0.0, 1.0) * (1 - mask) + emg_clean * mask
             else:
                 emg_pred = model(
                     emg_masked, mask=mask_1d, x_masked=emg_masked,
                     drop_condition=False, side=side, age=age, gender=gender,
                     raw_time_mask=mask,
                 )
-                emg_completed = emg_pred * (1 - mask) + emg_clean * mask
+                emg_completed = emg_pred.clamp(0.0, 1.0) * (1 - mask) + emg_clean * mask
 
             mse_list.append(F.mse_loss(emg_completed, emg_clean).item())
             mae_list.append(F.l1_loss(emg_completed, emg_clean).item())
@@ -514,7 +522,7 @@ def evaluate_and_plot_multi_difficulty(model, mcia_wrapper, dataloader, device, 
                 side=sides_level, age=ages_level, gender=genders_level,
                 raw_time_mask=mask,
             )
-            emg_completed_level = emg_pred_level * (1 - mask) + emg_clean_level * mask
+            emg_completed_level = emg_pred_level.clamp(0.0, 1.0) * (1 - mask) + emg_clean_level * mask
         
         all_masks.append(mask.cpu().numpy())
         all_emg_completed.append(emg_completed_level.cpu().numpy())
@@ -651,7 +659,7 @@ def evaluate_and_plot_multi_scenario(model, mcia_wrapper, dataloader, device, ou
                 side=sides_level, age=ages_level, gender=genders_level,
                 raw_time_mask=mask,
             )
-            emg_completed_level = emg_pred_level * (1 - mask) + emg_clean_level * mask
+            emg_completed_level = emg_pred_level.clamp(0.0, 1.0) * (1 - mask) + emg_clean_level * mask
 
         mask_np = mask.cpu().numpy()
         emg_completed_np = emg_completed_level.cpu().numpy()

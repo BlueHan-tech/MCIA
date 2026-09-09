@@ -430,6 +430,8 @@ class MCIA_Wrapper:
         else:
             pred = model(x_clean_masked, drop_condition=False, **kwargs)
 
+        # Constrain completion after guidance, before copying observations back.
+        pred = pred.clamp(0.0, 1.0)
         if raw_time_mask is not None:
             return pred * (1.0 - raw_time_mask) + x_clean_masked * raw_time_mask
         mask_expanded = mask.unsqueeze(1).expand_as(pred)

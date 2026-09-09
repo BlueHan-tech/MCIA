@@ -42,14 +42,13 @@ def mu_law_expand(x, mu=255.0):
     return expanded * x_max
 
 
-def robust_minmax_normalize(emg, q_low=5, q_high=95):
+def robust_minmax_normalize(emg):
     """
     ³棒 Min-Max 归һ化
     ʹ用百分λ数代替绝对最ֵ，避免异常ֵӰ响。
     归һ化到 [0, 1]：0=静Ϣ, 1=最大发力
     """
-    q05 = np.percentile(emg, q_low)
-    q95 = np.percentile(emg, q_high)
-    scale = (q95 - q05) + 1e-8
+    q05, q99 = np.percentile(emg, [5, 99])
+    scale = (q99 - q05) + 1e-8
     emg_norm = (emg - q05) / scale
     return np.clip(emg_norm, 0.0, 1.0)

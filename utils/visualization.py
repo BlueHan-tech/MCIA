@@ -158,7 +158,7 @@ def _run_model_on_batch(model, emg_clean: torch.Tensor, mask: torch.Tensor,
         pred = model(emg_masked, drop_condition=False, **kwargs)
 
     # 回填观测区
-    completed = pred * (1.0 - mask) + emg_clean * mask
+    completed = pred.clamp(0.0, 1.0) * (1.0 - mask) + emg_clean * mask
     return completed
 
 

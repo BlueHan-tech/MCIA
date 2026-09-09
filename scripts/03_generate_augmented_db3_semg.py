@@ -20,6 +20,7 @@ matplotlib.use("Agg")
 
 import numpy as np
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from data.dataset_db3_emg import prepare_data_db3
@@ -34,15 +35,41 @@ from utils.paper_pipeline import (
     save_json,
     set_seed,
 )
-from utils.rule_anomaly_detector import RuleAnomalyDetector
 from utils.visualization import plot_completion_panel
 
 
-def _load_model_from_path(path: Path, config: dict, device: str):
+class TransferAdapter(nn.Module):
+    """Checkpoint-compatible DB3 adaptation module from Exp2."""
+
+    def __init__(self, dim: int, bottleneck: int):
+        super().__init__()
+        self.norm = nn.LayerNorm(dim)
+        self.down = nn.Linear(dim, bottleneck)
+        self.act = nn.GELU()
+        self.up = nn.Linear(bottleneck, dim)
+        nn.init.zeros_(self.up.weight)
+        nn.init.zeros_(self.up.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.up(self.act(self.down(self.norm(x))))
+
+
+def _attach_transfer_adapters(model: nn.Module, config: dict, device: str) -> tuple[str, ...]:
+    n_blocks = int(config.get("transfer_adapter_blocks", 2))
+    bottleneck = int(config.get("transfer_adapter_bottleneck", 32))
+    dim = int(getattr(model, "embed_dim", model.mask_token.shape[-1]))
+    indices = range(len(model.blocks) - n_blocks, len(model.blocks))
+    for index in indices:
+        model.blocks[index].adapter = TransferAdapter(dim, bottleneck).to(device)
+    return tuple(f"blocks.{index}.adapter." for index in range(len(model.blocks) - n_blocks, len(model.blocks)))
+
+
+def _load_model_from_path(path: Path, config: dict, device: str, *, subject_finetuned: bool = False):
     if not path.exists():
         raise FileNotFoundError(path)
     model = build_mcia(config, device)
-    load_mcia_state_dict(model, path, device)
+    prefixes = _attach_transfer_adapters(model, config, device) if subject_finetuned else ()
+    load_mcia_state_dict(model, path, device, required_state_prefixes=prefixes)
     model.eval()
     return model, path
 
@@ -67,16 +94,10 @@ def get_config_value(config: dict, *keys: str, default=None):
 
 
 def load_subject_model(subject_id, config, device):
-    candidates = [
-        Path(config["transfer_checkpoints_dir"]) / f"S{subject_id:02d}" / "pretrained_finetuned.pth",
-        Path(config["transfer_checkpoints_dir"]) / f"S{subject_id:02d}" / "direct_transfer.pth",
-        Path(config.get("exp1_dir", "")) / "checkpoints" / "best_model.pth",
-        Path(config["checkpoints_dir"]) / "exp1_mcia_db2" / "best_model.pth",
-    ]
-    for path in candidates:
-        if path.exists():
-            return _load_model_from_path(path, config, device)
-    raise FileNotFoundError("No pretrained or subject-specific MCIA checkpoint found")
+    path = Path(config["transfer_checkpoints_dir"]) / f"S{subject_id:02d}" / "pretrained_finetuned.pth"
+    if not path.exists():
+        raise FileNotFoundError(f"No subject-finetuned MCIA checkpoint found: {path}")
+    return _load_model_from_path(path, config, device, subject_finetuned=True)
 
 
 def main():
@@ -115,18 +136,9 @@ def main():
 
         rule_outputs = None
         if mask_mode == "rule":
-            train_idx = np.flatnonzero(np.isin(
-                np.asarray(segment_meta["repetition"], dtype=np.int32),
-                config["transfer_train_repetitions"],
-            ))
-            detector = RuleAnomalyDetector(
-                patch_size=config.get("patch_size", 8),
-                group_indices=config.get("group_indices"),
-            ).fit(segments[train_idx])
-            rule_outputs = detector.detect_batch(segments)
+            rule_outputs = {"mask": segment_meta["quality_mask"]}
             print(
-                f"  rule mask: mean={(rule_outputs['mask'] < 0.5).mean():.2%} "
-                f"| dead={[int(c + 1) for c in rule_outputs['dead_channels']]}"
+                f"  two-layer quality mask: mean={(rule_outputs['mask'] < 0.5).mean():.2%}"
             )
 
         dataset = TensorDataset(torch.FloatTensor(segments))
@@ -147,7 +159,7 @@ def main():
                         device=device,
                         seed=int(config["transfer_random_seed"]) + subject_id + offset,
                     )
-                direct_enhanced = complete_with_mask(direct_model, batch, mask, domain_id=1)
+                direct_enhanced = complete_with_mask(direct_model, batch, mask, domain_id=None)
                 enhanced = complete_with_mask(model, batch, mask, domain_id=1)
                 all_direct_enhanced.append(direct_enhanced.cpu().numpy())
                 all_enhanced.append(enhanced.cpu().numpy())
@@ -165,18 +177,15 @@ def main():
             "mask": masks,
             "checkpoint": str(ckpt_path),
             "direct_checkpoint": str(direct_ckpt_path),
+            "healthy_prior_domain_id": "none",
+            "subject_finetuned_domain_id": 1,
+            "subject_finetuned_adapters_loaded": True,
             "mask_mode": mask_mode,
             "augmentation_mask_ratio": mask_ratio,
         }
         if rule_outputs is not None:
             payload.update({
-                "mask_labels": rule_outputs["labels"],
-                "patch_mask": rule_outputs["patch_mask"],
-                "patch_labels": rule_outputs["patch_labels"],
-                "unrecoverable_patches": rule_outputs["unrecoverable_patches"],
-                "mask_ratio": rule_outputs["mask_ratio"],
-                "unrecoverable_ratio": rule_outputs["unrecoverable_ratio"],
-                "dead_channels": rule_outputs["dead_channels"],
+                "mask_source": "hard_zero_train_1_3_4_or_gronlund_2005_mqp_p_gt_0_20",
             })
         np.savez(save_path, **payload)
         generate_panels = bool(get_config_value(
@@ -199,10 +208,6 @@ def main():
                 "direct_checkpoint": str(direct_ckpt_path),
                 "file": str(save_path),
                 "masked_ratio": float((masks < 0.5).mean()),
-                "dead_channels_1based": (
-                    [int(c + 1) for c in rule_outputs["dead_channels"]]
-                    if rule_outputs is not None else []
-                ),
                 "viz_files": [str(p) for p in viz_files],
             }
         )
