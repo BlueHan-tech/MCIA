@@ -1,5 +1,15 @@
 ## 2026-09-09
 
+- 新增独立文献补全基线实现：`models/baselines/sgmd_aae.py` 按 Zou et al. (2023) 实现 SGMD-AAE 的 240×12 self-mask PartialConv U-Net、多尺度时域/FFT 频域双判别器、self-guided/style/center-alignment/adversarial 损失和论文报告的损失权重/优化器学习率；`scripts/run_literature_completion_baseline.py` 可在显式 `MCIA_RUN_DIR` 下运行 SGMD-AAE 或 CP-WOPT。它们不接入默认主流程，SGMD-AAE 仅接受论文一致的原始 2kHz 120ms 240×12 输入。
+
+- 将本地论文材料目录 `apply/` 加入 `.gitignore`，避免 SGMD-AAE 参考 PDF 被纳入版本控制；该目录仅用于复现时的本地文献核验。
+
+- 新增独立文献基线模块 `models/baselines/cp_wopt.py`：按 Akmal et al. (2019) 的加权 CP/PARAFAC 目标和 Hestenes-Stiefel 非线性共轭梯度实现 CP-WOPT，并提供 RME 及“仅替换缺失值、保留观测值”的交付接口；新增合成低秩张量公式级 smoke，不接入 MCIA 或主实验链路。
+
+- 完成 MQP 阈值的健康人经验零校准（`test/calibrate_mqp_threshold_healthy_db2.py`，DB2 S01–S10 训练侧被试、E1+E2 活动段、与 DB3 掩码完全相同的 `mqp_probability` 代码路径、判定规则预先写死为“池化健康 flag 率 ≤5% 的最小网格阈值”、测试被试未触碰）：**预定规则无解**——健康人池化 P95=0.7031，网格内（0.05–0.40）最低 flag 率为 0.40 处的 8.99%；当前 0.20 阈值下健康人 flag 率 14.48%（逐被试 12.14–22.38%），DB3 截肢者为 18.58%，差距仅约 4 个百分点且随阈值升高收窄。结论：“健康≈干净”前提在该检测器上不成立，MQP p 在健康数据上有高本底（疑对正常生理/通道间异质性敏感），5% 目标不可达；若强行取健康 P95=0.70，DB3 掩码将降至 4.76%。不据此改阈值；是否调整留待用户决策，建议后续先做健康 p 本底的逐通道/逐动作分解诊断。产物在 run 的 `06_diagnostics/mqp_healthy_null_calibration_20260909/`。
+
+- 完成 range_penalty 配对筛选（`test/diagnose_range_penalty_screen.py`，与 2026-09-08 Softplus/Sigmoid 筛选同模式：DB2 S01/S02 训练→S03 验证、同初始化、同掩码种子、8 epoch 短预算、两臂仅 `range_penalty_weight` 0 vs 0.5 不同、评估统一用已采纳交付规则、无测试被试、无 checkpoint 选择）：机制生效（clip 前越界比例 0.25%→0.11%）但收益无稳定方向——末 epoch 加权 RMSE +2.2%、corr −0.0027，而第 3/5/6/7 epoch range 臂 RMSE/corr 占优；越界基数本身（<0.3%）过小，无实际可修复空间。判定：训练期软范围惩罚无信号，不采纳；与 Sigmoid 结论合并，"训练期有界输出"方向在重建层面均无证据支持，予以关闭。产物在 run 的 `06_diagnostics/range_penalty_screen_20260909/`。注意事项：短预算下越界比例可能低估全量训练（120 epochs）水平，但按开发规则无信号不进入采纳流程。
+
 - 采纳 patch 边界三点淡化为补全交付规则并统一替换主链路（用户确认）：`complete_with_mask` 移除 `patch_boundary_smooth` 开关、默认执行"clip → patch 边界淡化 → 复制回观测"；`_patch_boundary_crossfade` 更名为公共接口 `patch_boundary_crossfade`；`scripts/04` 的 `apply_mcia`/`make_enhanced_pool` 与 `scripts/05` 的 `apply_mcia` 同步接入并从 config 透传 `patch_size`。共享该函数的表格/图像再生成入口随之使用新交付规则，其产物与采纳前不可直接混比。依据：三个验证被试重建端一致改善（RMSE −1.5~−1.7%、corr 无损）+ 下游开发 A/B 中补全族内三指标全部最优。
 
 - 删除 MC-Dropout 不确定性门控补全路径（用户确认否决）：移除 `complete_with_mask_uncertainty`、`_linear_gap_fill` 及 `paper_pipeline` 仅为它们引入的 `torch.nn as nn` 导入。依据：重建端占优（−2%）但下游开发 A/B 中劣于默认（RMSE +4.49% vs +4.35%、R² 最低），线性插值回退抹除 TCN 依赖的动态信息，不满足下游判据。三个当日诊断脚本（`diagnose_completion_inference_options.py`、`confirm_completion_inference_options.py`、`diagnose_downstream_boundary_unc_ab.py`）保持运行时冻结以维持 results.json 溯源，其中被删路径的条件不可重跑。smoke 测试改写为交付规则断言（非边界点不变、边界点淡化、观测回填、常数不变性、非整除长度原样返回）；py311 环境通过编译、残留引用扫描、候选 smoke、输出范围测试与掩码生成器自检。

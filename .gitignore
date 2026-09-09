@@ -11,6 +11,7 @@ venv/
 .env.*
 !.env.example
 outputs/
+apply/
 *.pt
 *.pth
 *.ckpt
