@@ -42,6 +42,7 @@ from utils.paper_pipeline import (
     flatten_pipeline_config,
     load_mcia_state_dict,
     load_yaml_config,
+    patch_boundary_crossfade,
     safe_pearson_np as _safe_pearson,
     save_json,
     set_seed,
@@ -172,7 +173,8 @@ def load_healthy_prior_mcia(config, device):
 
 
 @torch.no_grad()
-def apply_mcia(mcia_model, emg_windows, masks, device, batch_size=64, domain_id=None):
+def apply_mcia(mcia_model, emg_windows, masks, device, batch_size=64, domain_id=None,
+               patch_size=8):
     N, T, C = emg_windows.shape
     enhanced = np.empty_like(emg_windows)
     for start in range(0, N, batch_size):
@@ -190,17 +192,21 @@ def apply_mcia(mcia_model, emg_windows, masks, device, batch_size=64, domain_id=
         pred = mcia_model(
             emg_masked, raw_time_mask=mask_t, chan_valid_mask=chan_valid, domain_id=domain_t
         )
-        enh = pred.clamp(0.0, 1.0) * (1.0 - mask_t) + emg_t * mask_t
+        # 交付规则（2026-09-09 采纳）：clip 后对 patch 边界做三点淡化，再复制回观测值。
+        pred = patch_boundary_crossfade(pred.clamp(0.0, 1.0), patch_size)
+        enh = pred * (1.0 - mask_t) + emg_t * mask_t
         enhanced[start:start + B] = enh.cpu().numpy()
     return enhanced
 
 
-def make_enhanced_pool(mcia_model, raw_emg, train_idx, val_idx, test_idx, masks, device, domain_id=None):
+def make_enhanced_pool(mcia_model, raw_emg, train_idx, val_idx, test_idx, masks, device, domain_id=None,
+                       patch_size=8):
     enhanced = raw_emg.copy()
     for idx in (train_idx, val_idx, test_idx):
         if len(idx) > 0:
             enhanced[idx] = apply_mcia(
-                mcia_model, raw_emg[idx], masks[idx], device, domain_id=domain_id
+                mcia_model, raw_emg[idx], masks[idx], device, domain_id=domain_id,
+                patch_size=patch_size,
             )
     return enhanced
 
@@ -1301,7 +1307,8 @@ def main():
                 _log(log_path, f"S{subject_id:02d} group B enhance/train")
                 print("  Building Group B enhanced EMG with healthy-prior MCIA...")
                 enh_B = make_enhanced_pool(
-                    healthy_mcia, raw_emg, train_idx, val_idx, test_idx, quality_masks, device, domain_id=None
+                    healthy_mcia, raw_emg, train_idx, val_idx, test_idx, quality_masks, device, domain_id=None,
+                    patch_size=int(config["patch_size"]),
                 )
                 subj_ckpt_dir = ckpt_dir / f"S{subject_id:02d}"
                 subj_ckpt_dir.mkdir(parents=True, exist_ok=True)

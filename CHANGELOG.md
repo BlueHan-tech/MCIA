@@ -1,5 +1,17 @@
 ## 2026-09-09
 
+- 采纳 patch 边界三点淡化为补全交付规则并统一替换主链路（用户确认）：`complete_with_mask` 移除 `patch_boundary_smooth` 开关、默认执行"clip → patch 边界淡化 → 复制回观测"；`_patch_boundary_crossfade` 更名为公共接口 `patch_boundary_crossfade`；`scripts/04` 的 `apply_mcia`/`make_enhanced_pool` 与 `scripts/05` 的 `apply_mcia` 同步接入并从 config 透传 `patch_size`。共享该函数的表格/图像再生成入口随之使用新交付规则，其产物与采纳前不可直接混比。依据：三个验证被试重建端一致改善（RMSE −1.5~−1.7%、corr 无损）+ 下游开发 A/B 中补全族内三指标全部最优。
+
+- 删除 MC-Dropout 不确定性门控补全路径（用户确认否决）：移除 `complete_with_mask_uncertainty`、`_linear_gap_fill` 及 `paper_pipeline` 仅为它们引入的 `torch.nn as nn` 导入。依据：重建端占优（−2%）但下游开发 A/B 中劣于默认（RMSE +4.49% vs +4.35%、R² 最低），线性插值回退抹除 TCN 依赖的动态信息，不满足下游判据。三个当日诊断脚本（`diagnose_completion_inference_options.py`、`confirm_completion_inference_options.py`、`diagnose_downstream_boundary_unc_ab.py`）保持运行时冻结以维持 results.json 溯源，其中被删路径的条件不可重跑。smoke 测试改写为交付规则断言（非边界点不变、边界点淡化、观测回填、常数不变性、非整除长度原样返回）；py311 环境通过编译、残留引用扫描、候选 smoke、输出范围测试与掩码生成器自检。
+
+- 完成下游角度开发 A/B（`test/diagnose_downstream_boundary_unc_ab.py`，DB3 S05、E1+E2、训练 repetitions 1/3/4、验证 repetition 6 报告、测试 repetitions 划出后全程未用、四条件同种子同掩码同 checkpoint、TCN 预算压缩为 40 epochs/patience 10 并记录、窗口级口径无连续输出后处理）：raw 验证 RMSE 0.17353；补全默认 +4.35%、边界淡化 +4.15%（MAE +1.52%、R² 0.0470，为补全族内三指标全部最优）、不确定性门控 g=0.15 +4.49%（补全族内最差）。与主 run 测试结果（S05/S06 B 相对 A RMSE +0.5%/+0.2%）方向一致：当前 B 组补全未在下游超过 raw。结论：边界淡化是唯一重建与下游两端均不劣化的候选；不确定性门控重建占优但下游劣于默认，按下游判据不采纳。产物在 run 的 `06_diagnostics/downstream_boundary_unc_ab_20260909/`。
+
+- 完成 S30/S31 独立复确认（`test/confirm_completion_inference_options.py`，与初筛同方法学：同冻结 checkpoint、同固定掩码种子、512 窗口/被试、仅验证被试、无训练；差异仅被试换成 S30/S31 并省略已删除的 refine2 条件）：patch 边界淡化 RMSE −1.67%/−1.65%（S30/S31）、corr +0.0004/+0.0012；不确定性门控 g=0.15 RMSE −1.89%/−1.59%、corr −0.0002/+0.0002。与 S29 初筛（边界淡化 −1.49%、g=0.15 −2.06%）方向和量级一致，g=0.10 的 corr 代价在 S29/S30 复现（−0.0040/−0.0029）、S31 消失，0.15 以上三个被试 corr 均无损。产物在 run 的 `06_diagnostics/completion_inference_options_confirm_20260909/`。重建指标复确认通过，下游角度证据仍未验证。
+
+- 删除 `complete_with_mask` 的多步自精炼参数 `refine_steps` 及其实现：配对开发筛选显示两步自精炼使加权 RMSE +61.4%、corr −0.0150（把自身预测当观测再前向导致误差累积），按无效候选清除，不留开关。`test/diagnose_completion_inference_options.py` 保持运行时原样冻结以维持 `results.json` 中脚本 sha256 溯源，其 `refine2` 条件在库中已无对应实现，不可重跑。同步移除 smoke 测试中该分支的断言；py311 环境通过编译、候选选项 smoke 与输出范围测试。
+
+- 完成推理级候选选项的配对开发筛选（`test/diagnose_completion_inference_options.py`，冻结 Exp1 checkpoint、DB2 验证被试 S29、512 窗口、固定 S1/S2/S3 掩码、无训练、未用测试被试）：patch 边界三点淡化三个场景一致改善（加权 RMSE −1.49%、MAE −1.35%、corr +0.0008）；MC-Dropout 不确定性门控在门限 0.10/0.15/0.20 均降低 RMSE/MAE（最多 −2.90%/−2.42%），门限 0.10 伴随 corr −0.0040、0.15 以上 corr 基本不变；两步自精炼严重退化（RMSE +61.4%、corr −0.0150），判定为无效候选。产物在 run 的 `06_diagnostics/completion_inference_options_20260909/`。该筛选仅用重建指标做开发初筛，采纳与否仍需更多验证被试复确认与下游角度证据。
+
 - 新增 MCIA 候选优化能力（默认全部关闭，不改变主流程行为）：`EMGImputationLoss` 可选缺失区软 [0,1] 范围惩罚（`range_penalty_weight`）；`MCIA` 可选零初始化包络旁路 `EnvelopeBranch`（`use_envelope_branch`，加载旧 checkpoint 时恒等，不注入无条件 CFG 分支）；`complete_with_mask` 新增 patch 边界三点淡化和多步自精炼参数；新增 `complete_with_mask_uncertainty` MC-Dropout 不确定性门控补全（低方差采样点用 MC 均值，高方差采样点回退观测锚定线性插值）。删除 `MCIA_Wrapper.q_sample` 无调用方残留。
 
 - 新增 `RuleAlignedMaskGenerator`：从训练 repetitions 质量掩码库重采样 patch 对齐循环平移训练掩码，契约同 ScenarioMix（二值、patch 对齐）；因 Exp2 个体适配链路已退役，当前无主流程消费方，保留为未来无真值 DB3 适配目标的组件。

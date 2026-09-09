@@ -29,7 +29,7 @@ from torch.utils.data import DataLoader, Dataset
 from data.dataset_db2_emg import moving_average
 from data.ninapro_loader import NinaProDataLoader
 from models.prediction.kinematic_regressor import TemporalBlock
-from utils.paper_pipeline import build_mcia, flatten_pipeline_config, load_mcia_state_dict, load_yaml_config, set_seed
+from utils.paper_pipeline import build_mcia, flatten_pipeline_config, load_mcia_state_dict, load_yaml_config, patch_boundary_crossfade, set_seed
 from utils.db3_quality_mask import db3_quality_mask
 
 
@@ -160,7 +160,7 @@ def healthy_checkpoint(config: dict) -> Path:
 
 @torch.no_grad()
 def apply_mcia(mcia: nn.Module, raw_windows: np.ndarray, masks: np.ndarray,
-               device: str, batch_size: int) -> tuple[np.ndarray, dict]:
+               device: str, batch_size: int, patch_size: int = 8) -> tuple[np.ndarray, dict]:
     enhanced = np.empty_like(raw_windows)
     for start in range(0, len(raw_windows), batch_size):
         stop = min(start + batch_size, len(raw_windows))
@@ -168,7 +168,9 @@ def apply_mcia(mcia: nn.Module, raw_windows: np.ndarray, masks: np.ndarray,
         mask = torch.as_tensor(masks[start:stop], dtype=torch.float32, device=device)
         valid_channels = (mask.mean(dim=1) > 0.5).float()
         completed = mcia(raw * mask, raw_time_mask=mask, chan_valid_mask=valid_channels)
-        enhanced[start:stop] = (completed.clamp(0.0, 1.0) * (1.0 - mask) + raw * mask).cpu().numpy()
+        # 交付规则（2026-09-09 采纳）：clip 后对 patch 边界做三点淡化，再复制回观测值。
+        completed = patch_boundary_crossfade(completed.clamp(0.0, 1.0), patch_size)
+        enhanced[start:stop] = (completed * (1.0 - mask) + raw * mask).cpu().numpy()
     return enhanced, {"mask": masks}
 
 
@@ -320,7 +322,8 @@ def main() -> None:
             keep = np.isin(one.labels, action_ids_expected)
             one = GestureWindows(one.emg[keep], one.labels[keep], one.repetitions[keep], one.starts[keep], one.quality_mask[keep])
             b_values, b_meta = apply_mcia(healthy_mcia, one.emg, one.quality_mask, device,
-                                          int(config["regressor_batch_size"]))
+                                          int(config["regressor_batch_size"]),
+                                          patch_size=int(config["patch_size"]))
             raw_parts.append(one.emg); b_parts.append(b_values)
             labels_parts.append(one.labels); reps_parts.append(one.repetitions); starts_parts.append(one.starts); quality_parts.append(one.quality_mask)
             detector_report[f"E{exercise}"] = {

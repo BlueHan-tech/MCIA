@@ -1,7 +1,8 @@
-"""候选优化选项的合成数据 smoke：不改主链路默认行为。
+"""候选优化能力的合成数据 smoke。
 
 覆盖：范围惩罚损失、规则对齐掩码生成器、包络分支零初始化兼容性、
-patch 边界淡化、多步精炼、MC-Dropout 不确定性门控补全。
+已采纳的 patch 边界淡化交付规则（complete_with_mask 默认行为）。
+已否决并删除的路径（多步自精炼、MC-Dropout 不确定性门控）不在此列。
 """
 
 from __future__ import annotations
@@ -19,13 +20,11 @@ import numpy as np
 import torch
 
 from models.completion.mask_generators import RuleAlignedMaskGenerator, ScenarioMixMaskGenerator
-from models.completion.mcia_core import MCIA
+from models.completion.mcia_core import MCIA, derive_ch_mask_from_sample_mask
 from utils.loss_functions import EMGImputationLoss
 from utils.paper_pipeline import (
-    _linear_gap_fill,
-    _patch_boundary_crossfade,
     complete_with_mask,
-    complete_with_mask_uncertainty,
+    patch_boundary_crossfade,
 )
 
 torch.manual_seed(0)
@@ -100,63 +99,45 @@ def test_envelope_branch_zero_init() -> None:
     check("trained envelope branch changes output", not torch.allclose(env_pred2, base_pred, atol=1e-6))
 
 
-def test_completion_options() -> None:
+def test_completion_delivery_rule() -> None:
     model = build_model().eval()
     x = torch.rand(B, T, C)
     mask = (torch.rand(B, T, C) > 0.3).float()
+    mask_1d = derive_ch_mask_from_sample_mask(mask)
 
     with torch.no_grad():
-        legacy = model(x * mask, x_masked=x * mask, raw_time_mask=mask).clamp(0, 1)
-        legacy_out = legacy * (1 - mask) + x * mask
+        raw_pred = model(x * mask, mask=mask_1d, x_masked=x * mask,
+                         raw_time_mask=mask).clamp(0, 1)
+        unsmoothed = raw_pred * (1 - mask) + x * mask
         default_out = complete_with_mask(model, x, mask)
-    check("complete_with_mask default unchanged", torch.allclose(legacy_out, default_out, atol=1e-6))
-    check("observed copy-back exact", torch.allclose(default_out * mask, x * mask))
 
-    with torch.no_grad():
-        smooth_out = complete_with_mask(model, x, mask, patch_boundary_smooth=True, patch_size=P)
-        refine_out = complete_with_mask(model, x, mask, refine_steps=2)
-    check("boundary smooth runs and differs", not torch.allclose(smooth_out, default_out))
-    check("refine runs and differs", not torch.allclose(refine_out, default_out))
     boundary_cols = np.zeros(T, dtype=bool)
     boundary_cols[P - 1::P] = True
     boundary_cols[P::P] = True
     non_boundary = torch.from_numpy(~boundary_cols).float().view(1, T, 1)
-    check("smooth preserves non-boundary completed samples",
-          torch.allclose(smooth_out * (1 - mask) * non_boundary,
-                         default_out * (1 - mask) * non_boundary))
+    check("delivery keeps non-boundary completed samples",
+          torch.allclose(default_out * (1 - mask) * non_boundary,
+                         unsmoothed * (1 - mask) * non_boundary, atol=1e-6))
+    check("delivery smooths boundary completed samples",
+          not torch.allclose(default_out * (1 - mask), unsmoothed * (1 - mask)))
+    check("observed copy-back exact", torch.allclose(default_out * mask, x * mask))
+    check("delivery bounded", float(default_out.min()) >= 0.0 and float(default_out.max()) <= 1.0)
 
-    unc_out = complete_with_mask_uncertainty(model, x, mask, n_samples=4, std_gate=0.0)
-    check("uncertainty copy-back exact", torch.allclose(unc_out * mask, x * mask))
-    check("uncertainty bounded", float(unc_out.min()) >= 0.0 and float(unc_out.max()) <= 1.0)
-    model.train()
-    unc_out2 = complete_with_mask_uncertainty(model, x, mask, n_samples=3, std_gate=1.0)
-    check("uncertainty restores training mode", model.training)
-    check("uncertainty bounded in train mode", float(unc_out2.max()) <= 1.0)
-    model.eval()
-
-    gap = np.random.rand(3, 20, 2).astype(np.float32)
-    gap_mask = np.ones((3, 20, 2), dtype=np.float32)
-    gap_mask[:, 5:10, 0] = 0.0
-    gap_mask[:, :, 1] = 0.0                       # 整通道缺失 -> 回退预测值
-    filled = _linear_gap_fill(gap, gap_mask)
-    expected = np.stack([
-        np.interp(np.arange(5, 10),
-                  (known := np.flatnonzero(gap_mask[b, :, 0] >= 0.5)),
-                  gap[b, known, 0])
-        for b in range(gap.shape[0])
-    ])
-    check("gap fill interpolates observed anchors", np.allclose(filled[:, 5:10, 0], expected, atol=1e-6))
-    check("gap fill keeps observed samples", np.allclose(filled[gap_mask >= 0.5], gap[gap_mask >= 0.5]))
-    check("gap fill full-missing falls back", np.allclose(filled[:, :, 1], gap[:, :, 1]))
-    boundary = _patch_boundary_crossfade(torch.ones(1, T, C), P)
-    check("boundary crossfade keeps bounds", float(boundary.max()) <= 1.0 and float(boundary.min()) >= 0.0)
+    constant = torch.full((1, T, C), 0.3)
+    check("crossfade constant invariant",
+          torch.allclose(patch_boundary_crossfade(constant, P), constant, atol=1e-7))
+    check("crossfade keeps bounds",
+          float(patch_boundary_crossfade(torch.rand(2, T, C), P).min()) >= 0.0)
+    odd = torch.rand(1, T + 1, C)
+    check("crossfade returns non-aligned lengths unchanged",
+          torch.equal(patch_boundary_crossfade(odd, P), odd))
 
 
 def main() -> None:
     test_range_penalty()
     test_rule_aligned_mask()
     test_envelope_branch_zero_init()
-    test_completion_options()
+    test_completion_delivery_rule()
     print("all candidate-option smokes passed")
 
 
