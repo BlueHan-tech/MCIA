@@ -8,7 +8,7 @@ default generate_figures_from_run rebuild flow.
 Current default mainline figures are:
 - 01 DB2 completion report;
 - 03 DB3 12ch completion figures;
-- 04 anatomy A/B/C angle figures.
+- 04 anatomy A/B angle figures.
 
 This module intentionally mixes legacy rendering, table export, and metrics
 aggregation helpers. Do not delete the whole file before cleanup separates those
@@ -32,8 +32,8 @@ import numpy as np
 
 SCENARIOS = ("s1", "s2", "s3")
 ANGLE_SUBSETS = ("global", "mcp", "pip")
-GROUPS = ("A", "B", "C")
-GROUP_LABELS = {"A": "Group A raw", "B": "Group B healthy-prior", "C": "Group C subject-ft"}
+GROUPS = ("A", "B")
+GROUP_LABELS = {"A": "Group A raw", "B": "Group B healthy-prior"}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -236,48 +236,6 @@ def plot_figure4_training_curves(history_path: Path, save_path: Path) -> bool:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# ── 图 6 — 伪缺失曲线（corr_masked_partial vs ratio）──
-# ──────────────────────────────────────────────────────────────────────────────
-
-def plot_figure6_pseudo_missing(
-    report: dict,
-    save_path: Path,
-    metric: str = "corr_masked_partial",
-) -> bool:
-    modes = report.get("modes", [])
-    ratios = [float(r) for r in report.get("pseudo_missing_ratios", [])]
-    if not modes or not ratios:
-        return False
-
-    fig, ax = plt.subplots(figsize=(7, 4.5))
-    colors = {"direct_transfer": "#1f77b4", "pretrained_finetuned": "#ff7f0e", "amputee_only": "#2ca02c"}
-    for mode in modes:
-        ys, ystds = [], []
-        for ratio in ratios:
-            vals = []
-            for subj in report.get("subjects", []):
-                m = subj.get("results", {}).get(mode, {}).get("metrics", {}).get(str(ratio), {})
-                if m and metric in m:
-                    vals.append(m[metric])
-            mu, sd, _ = _nanmean_std(vals)
-            ys.append(mu)
-            ystds.append(sd)
-        ax.errorbar(ratios, ys, yerr=ystds, marker="o", capsize=4,
-                    label=mode, color=colors.get(mode, None), lw=1.8)
-
-    ax.set_xlabel("pseudo-missing ratio")
-    ax.set_ylabel(metric)
-    ax.set_title("Exp2b pseudo-missing completion")
-    ax.legend(fontsize=9)
-    ax.grid(True, alpha=0.3)
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.subplots_adjust(left=0.08, right=0.98, bottom=0.12, top=0.88, hspace=0.30)
-    plt.savefig(save_path, dpi=180)
-    plt.close(fig)
-    return True
-
-
-# ──────────────────────────────────────────────────────────────────────────────
 # ── 图 7 — 规则检测器步骤可视化 ──
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -371,8 +329,7 @@ def plot_figure8_angle_traces(
     """Plot the first window for one fixed Key10 channel."""
     t = np.arange(target.shape[1])
     styles = {"A": ("#1f77b4", "Group A raw"),
-              "B": ("#ff7f0e", GROUP_LABELS["B"]),
-              "C": ("#2ca02c", GROUP_LABELS["C"])}
+              "B": ("#ff7f0e", GROUP_LABELS["B"])}
     fig, ax = plt.subplots(figsize=(10, 3.5))
     ax.plot(t, target[0, :, dim], color="black", lw=1.5, label="Ground truth")
     for grp, pred in preds.items():          # pred 为 ndarray (N,T,C)，不是元组
@@ -408,7 +365,7 @@ def plot_figure9_grouped_bars(exp3_report: dict, save_path: Path, metric: str = 
     x = np.arange(len(ANGLE_SUBSETS))
     width = 0.8 / len(groups_present)
     fig, ax = plt.subplots(figsize=(9, 4.5))
-    colors = {"A": "#1f77b4", "B": "#ff7f0e", "C": "#2ca02c"}
+    colors = {"A": "#1f77b4", "B": "#ff7f0e"}
 
     for i, grp in enumerate(groups_present):
         means, stds = [], []
@@ -536,38 +493,6 @@ def export_table1_exp1(
         fieldnames = list(rows[0].keys())
         with open(save_path, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=fieldnames)
-            w.writeheader()
-            w.writerows(rows)
-
-
-def export_table2_exp2a(finetune_summary: dict, save_path: Path) -> None:
-    rows = []
-    for s in finetune_summary.get("subjects", []):
-        if s.get("status") != "ok":
-            continue
-        pf = s.get("pretrained_finetuned", {})
-        ao = s.get("amputee_only", {})
-        pf_loss = pf.get("best_train_loss", float("nan"))
-        ao_loss = ao.get("best_train_loss", float("nan"))
-        rows.append({
-            "subject": f"S{s['subject_id']:02d}",
-            "pretrained_finetuned_loss": pf_loss,
-            "amputee_only_loss": ao_loss,
-            "delta": pf_loss - ao_loss if np.isfinite(pf_loss) and np.isfinite(ao_loss) else "",
-        })
-    if rows:
-        pf_vals = [r["pretrained_finetuned_loss"] for r in rows if r["pretrained_finetuned_loss"] != ""]
-        ao_vals = [r["amputee_only_loss"] for r in rows if r["amputee_only_loss"] != ""]
-        rows.append({
-            "subject": "mean",
-            "pretrained_finetuned_loss": np.mean(pf_vals) if pf_vals else "",
-            "amputee_only_loss": np.mean(ao_vals) if ao_vals else "",
-            "delta": "",
-        })
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    if rows:
-        with open(save_path, "w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=rows[0].keys())
             w.writeheader()
             w.writerows(rows)
 

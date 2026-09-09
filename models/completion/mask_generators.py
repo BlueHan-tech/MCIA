@@ -365,6 +365,81 @@ class ScenarioMixMaskGenerator:
         return mask.permute(0, 2, 1) if btc else mask
 
 
+class RuleAlignedMaskGenerator:
+    """从经验规则掩码库重采样训练掩码，使训练缺失分布与 DB3 真实异常形态对齐。
+
+    与 ScenarioMixMaskGenerator 保持同一 generate_batch_masks 契约：
+      [C1] 输出 mask ∈ {0.0, 1.0}
+      [C2] 平移量是 patch_size 的整数倍，patch 对齐性不被破坏
+    掩码库必须来自训练 repetitions 的质量掩码；不做通道重排（通道身份有意义）。
+    """
+
+    def __init__(
+        self,
+        mask_bank: np.ndarray,
+        patch_size: int = 8,
+        rng: Optional[np.random.Generator] = None,
+        max_shift_patches: Optional[int] = None,
+    ):
+        bank = np.asarray(mask_bank, dtype=np.float32)
+        if bank.ndim != 3:
+            raise ValueError(f"mask_bank must be (M,T,C), got shape {bank.shape}")
+        if not np.isin(bank, (0.0, 1.0)).all():
+            raise ValueError("mask_bank must be binary 0/1 (1=observed)")
+        self.patch_size = int(patch_size)
+        self.time_steps = int(bank.shape[1])
+        self.n_channels = int(bank.shape[2])
+        if self.time_steps % self.patch_size != 0:
+            raise ValueError(
+                f"time_steps ({self.time_steps}) must be divisible by patch_size ({self.patch_size})"
+            )
+        self.num_patches = self.time_steps // self.patch_size
+        if max_shift_patches is None:
+            max_shift_patches = self.num_patches - 1
+        self.max_shift_patches = max(0, int(max_shift_patches))
+        self.rng = rng if rng is not None else np.random.default_rng()
+        self.mask_bank = bank
+
+    def _resample_single(self) -> np.ndarray:
+        m, t_steps, chans = self.mask_bank.shape
+        source = self.mask_bank[int(self.rng.integers(0, m))]
+        shift = int(self.rng.integers(0, self.max_shift_patches + 1)) * self.patch_size
+        if shift == 0:
+            return source.copy()
+        return np.roll(source, shift=shift, axis=0)
+
+    def generate_batch_masks(
+        self,
+        batch_size: int,
+        n_channels: Optional[int] = None,
+        time_steps: Optional[int] = None,
+        device: str = 'cpu',
+        scenario: Optional[str] = None,
+        difficulty_level: Optional[float] = None,
+    ) -> torch.Tensor:
+        del scenario, difficulty_level
+        channels = n_channels if n_channels is not None else self.n_channels
+        steps = time_steps if time_steps is not None else self.time_steps
+        assert channels == self.n_channels, f"n_channels mismatch: {channels} vs {self.n_channels}"
+        assert steps == self.time_steps, f"time_steps mismatch: {steps} vs {self.time_steps}"
+        mask = np.stack([self._resample_single() for _ in range(batch_size)])
+        return torch.from_numpy(mask).to(device)
+
+    def generate_mask(
+        self,
+        emg_batch: torch.Tensor,
+        difficulty: Optional[float] = None,
+        scenario: Optional[str] = None,
+    ) -> torch.Tensor:
+        del difficulty, scenario
+        if emg_batch.dim() != 3:
+            raise ValueError("Input must be 3D tensor")
+        batch_size = emg_batch.shape[0]
+        return self.generate_batch_masks(
+            batch_size, device=str(emg_batch.device)
+        )
+
+
 def _run_self_check(n_trials: int = 100, batch_size: int = 32, seed: int = 0) -> None:
     generator = ScenarioMixMaskGenerator(
         n_channels=12, time_steps=256, patch_size=8, rng=np.random.default_rng(seed)

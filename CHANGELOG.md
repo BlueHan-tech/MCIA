@@ -1,8 +1,20 @@
+## 2026-09-09
+
+- 新增 MCIA 候选优化能力（默认全部关闭，不改变主流程行为）：`EMGImputationLoss` 可选缺失区软 [0,1] 范围惩罚（`range_penalty_weight`）；`MCIA` 可选零初始化包络旁路 `EnvelopeBranch`（`use_envelope_branch`，加载旧 checkpoint 时恒等，不注入无条件 CFG 分支）；`complete_with_mask` 新增 patch 边界三点淡化和多步自精炼参数；新增 `complete_with_mask_uncertainty` MC-Dropout 不确定性门控补全（低方差采样点用 MC 均值，高方差采样点回退观测锚定线性插值）。删除 `MCIA_Wrapper.q_sample` 无调用方残留。
+
+- 新增 `RuleAlignedMaskGenerator`：从训练 repetitions 质量掩码库重采样 patch 对齐循环平移训练掩码，契约同 ScenarioMix（二值、patch 对齐）；因 Exp2 个体适配链路已退役，当前无主流程消费方，保留为未来无真值 DB3 适配目标的组件。
+
+- 清理 `config.yaml` 死键（`spatial_depth`/`num_heads`/`mlp_ratio`/`pool_*`/`fuse_mode`/`temporal_depth`/`use_mask_swap`/`use_group_bias`/`use_spatial_mixer` 及全部 `alpha_*`/`beta_smooth`，代码无引用）；移除已退役 C 组路径对应的 `adapt_positional`/`training_mask_mode`/`completion_uncertainty`/`completion_patch_boundary_smooth` 键，按约定不恢复任何 C 组（个体适配）改动，`02`/`03` 保持退役占位。
+
+- 新增两个开发/验证入口：`dev/ablate_structural_loss_terms.py`（DB2 S01/S02→S03 小规模结构损失项剪枝消融，不用测试被试）与 `test/test_candidate_upgrade_smoke.py`（合成数据覆盖上述全部新选项：范围惩罚开关、规则掩码契约、包络旁路零初始化恒等、边界淡化非边界保持、多步精炼、不确定性门控回填与训练模式恢复）。py311 环境通过编译、25 项 smoke、掩码生成器自检、输出范围测试及 loss/model 构建与前向；未运行完整主流程、真实数据训练或下游有效性实验，新选项下游收益均未验证。
+
 ## 2026-09-08
 
-- 修复 DB3 个体适配 C 组的推理契约：增强生成、连续角度和手势识别均在加载匹配 adapter 后使用 `domain_id=1`；健康先验 B 组保持无 adapter、无 domain 条件。C checkpoint 缺少或无法加载 adapter 权重时显式报错，避免静默退化为健康先验或跳过适配参数。
+- 移除 DB3 人工遮挡原始 sEMG、再以原始记录作为重建真值的个体适配训练及其 checkpoint、增强和人工遮挡表格消费链路；Exp3 默认仅运行 A/B，旧 DB3 适配产物保留为历史文件但不能被新主流程读取。`02`、`03` 和旧表格入口改为明确停用提示，等待无真值自监督方案重新定义和验证。
 
-- Exp2 DB3 个体适配改为只以 repetition 6 的固定验证掩码按 `loss_for_early_stop` 选择 checkpoint，不再以训练损失选择；每位被试者落盘 `conditions.json`，记录数据划分断言、归一化统计来源、质量掩码、验证契约、随机种子和配置/实现/checkpoint 哈希。
+- 恢复 Exp4 的 A/B 主链路：A 使用原始 DB3 sEMG，B 使用健康先验在同一质量掩码下的补全 sEMG；删除 C checkpoint、adapter、`domain_id=1`、C 分类器和 C 指标消费，默认全流程重新包含手势识别 A/B。
+
+- 修复补全输出范围 smoke 的测试调用：将遗留 `Detector` 存根改为与 `apply_mcia` 现有签名一致的预计算 mask 数组，并将实际 PNG 写入可写的 `outputs/matplotlib_diagnosis`；在 `py311` Conda 环境通过模型输出范围、观测值回填、严格 state load、`apply_mcia` 与实际 Matplotlib 保存 smoke。
 
 - 手势识别主链路改用 DB3 两层质量掩码：训练 repetitions 的严格零值硬缺失与 Gronlund（2005）MQP 固定 p>0.20 的逐通道一秒异常段取并集；补全、保存与下游输入共享该掩码，并将固定 48 类被试及其受试者适配范围扩展至 S02/S03/S04/S05/S06/S07/S08/S09/S11。
 

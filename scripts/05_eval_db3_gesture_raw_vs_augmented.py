@@ -62,30 +62,6 @@ class GestureDataset(Dataset):
         return {"emg": self.emg[index], "label": self.labels[index]}
 
 
-class TransferAdapter(nn.Module):
-    """Checkpoint-compatible identity-initialized Exp2 adapter."""
-    def __init__(self, dim: int, bottleneck: int):
-        super().__init__()
-        self.norm = nn.LayerNorm(dim)
-        self.down = nn.Linear(dim, bottleneck)
-        self.act = nn.GELU()
-        self.up = nn.Linear(bottleneck, dim)
-        nn.init.zeros_(self.up.weight)
-        nn.init.zeros_(self.up.bias)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x + self.up(self.act(self.down(self.norm(x))))
-
-
-def attach_transfer_adapters(model: nn.Module, config: dict, device: str) -> nn.Module:
-    n_blocks = int(config.get("transfer_adapter_blocks", 2))
-    bottleneck = int(config.get("transfer_adapter_bottleneck", 32))
-    dim = int(getattr(model, "embed_dim", model.mask_token.shape[-1]))
-    for block in model.blocks[-n_blocks:]:
-        block.adapter = TransferAdapter(dim, bottleneck).to(device)
-    return model
-
-
 class GestureTCN(nn.Module):
     """Small subject-specific temporal classifier with global time pooling."""
 
@@ -184,15 +160,14 @@ def healthy_checkpoint(config: dict) -> Path:
 
 @torch.no_grad()
 def apply_mcia(mcia: nn.Module, raw_windows: np.ndarray, masks: np.ndarray,
-               device: str, batch_size: int, domain_id: int | None = None) -> tuple[np.ndarray, dict]:
+               device: str, batch_size: int) -> tuple[np.ndarray, dict]:
     enhanced = np.empty_like(raw_windows)
     for start in range(0, len(raw_windows), batch_size):
         stop = min(start + batch_size, len(raw_windows))
         raw = torch.as_tensor(raw_windows[start:stop], dtype=torch.float32, device=device)
         mask = torch.as_tensor(masks[start:stop], dtype=torch.float32, device=device)
         valid_channels = (mask.mean(dim=1) > 0.5).float()
-        domain = torch.full((len(raw),), domain_id, dtype=torch.long, device=device) if domain_id is not None else None
-        completed = mcia(raw * mask, raw_time_mask=mask, chan_valid_mask=valid_channels, domain_id=domain)
+        completed = mcia(raw * mask, raw_time_mask=mask, chan_valid_mask=valid_channels)
         enhanced[start:stop] = (completed.clamp(0.0, 1.0) * (1.0 - mask) + raw * mask).cpu().numpy()
     return enhanced, {"mask": masks}
 
@@ -305,21 +280,6 @@ def mask_summary(metadata: dict) -> dict:
     }
 
 
-def _load_subject_finetuned_mcia(subject_id: int, config: dict, device: str) -> tuple[nn.Module, Path]:
-    path = Path(config["transfer_checkpoints_dir"]) / f"S{subject_id:02d}" / "pretrained_finetuned.pth"
-    if not path.exists():
-        raise FileNotFoundError(f"Missing subject-finetuned MCIA checkpoint: {path}")
-    model = build_mcia(config, device)
-    attach_transfer_adapters(model, config, device)
-    n_blocks = int(config.get("transfer_adapter_blocks", 2))
-    required_prefixes = tuple(
-        f"blocks.{index}.adapter." for index in range(len(model.blocks) - n_blocks, len(model.blocks))
-    )
-    load_mcia_state_dict(model, path, device, required_state_prefixes=required_prefixes)
-    model.eval()
-    return model, path
-
-
 def main() -> None:
     config = flatten_pipeline_config(load_yaml_config(ROOT))
     device = config["device"]
@@ -346,13 +306,12 @@ def main() -> None:
             "normalization": "per subject and exercise, train-free EMG preprocessing; no labels enter enhancement",
             "model_selection": "validation macro-F1 only",
         },
-        "model": {"name": "GestureTCN", "same_architecture_for_A_B_C": True},
+        "model": {"name": "GestureTCN", "same_architecture_for_A_B": True},
         "subjects": [],
     }
     for subject_id in config["gesture_subjects"]:
         print(f"\n[Gesture] DB3 S{subject_id:02d}", flush=True)
-        c_mcia, c_path = _load_subject_finetuned_mcia(subject_id, config, device)
-        raw_parts, b_parts, c_parts, labels_parts, reps_parts, starts_parts, quality_parts = [], [], [], [], [], [], []
+        raw_parts, b_parts, labels_parts, reps_parts, starts_parts, quality_parts = [], [], [], [], [], []
         detector_report = {}
         for exercise in config["gesture_exercises"]:
             one, quality_report = load_db3_windows(loader, subject_id, int(exercise), config,
@@ -361,14 +320,12 @@ def main() -> None:
             keep = np.isin(one.labels, action_ids_expected)
             one = GestureWindows(one.emg[keep], one.labels[keep], one.repetitions[keep], one.starts[keep], one.quality_mask[keep])
             b_values, b_meta = apply_mcia(healthy_mcia, one.emg, one.quality_mask, device,
-                                          int(config["regressor_batch_size"]), domain_id=None)
-            c_values, c_meta = apply_mcia(c_mcia, one.emg, one.quality_mask, device,
-                                          int(config["regressor_batch_size"]), domain_id=1)
-            raw_parts.append(one.emg); b_parts.append(b_values); c_parts.append(c_values)
+                                          int(config["regressor_batch_size"]))
+            raw_parts.append(one.emg); b_parts.append(b_values)
             labels_parts.append(one.labels); reps_parts.append(one.repetitions); starts_parts.append(one.starts); quality_parts.append(one.quality_mask)
             detector_report[f"E{exercise}"] = {
                 "two_layer_quality_mask": quality_report,
-                "healthy_mask": mask_summary(b_meta), "subject_ft_mask": mask_summary(c_meta),
+                "healthy_mask": mask_summary(b_meta),
             }
         windows = GestureWindows(np.concatenate(raw_parts), np.concatenate(labels_parts),
                                  np.concatenate(reps_parts), np.concatenate(starts_parts),
@@ -378,8 +335,7 @@ def main() -> None:
         if action_ids != action_ids_expected:
             raise ValueError(f"S{subject_id:02d} does not have the locked 48-class train set: {action_ids}")
         encoded = encode_labels(windows.labels, mapping)
-        conditions = {"A_raw": np.concatenate(raw_parts), "B_healthy_prior": np.concatenate(b_parts),
-                      "C_subject_ft": np.concatenate(c_parts)}
+        conditions = {"A_raw": np.concatenate(raw_parts), "B_healthy_prior": np.concatenate(b_parts)}
         condition_report = {}
         for condition, emg in conditions.items():
             model, training = train_classifier(emg, encoded, train_idx, val_idx, config, device,
@@ -409,7 +365,6 @@ def main() -> None:
             "rule_detector": detector_report, "groups": condition_report,
             "delta_macro_f1_vs_A": {
                 "B": float(condition_report["B_healthy_prior"]["test_window_metrics"]["macro_f1"] - condition_report["A_raw"]["test_window_metrics"]["macro_f1"]),
-                "C": float(condition_report["C_subject_ft"]["test_window_metrics"]["macro_f1"] - condition_report["A_raw"]["test_window_metrics"]["macro_f1"]),
             }})
     path = Path(config["gesture_results_path"])
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

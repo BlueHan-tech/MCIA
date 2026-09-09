@@ -77,7 +77,6 @@ def prepare_data_db3(data_loader, subject_ids, config, exercises=None, return_me
     window_size, stride = int(config["window_size"]), int(config["stride"])
     train_reps = tuple(config.get("transfer_train_repetitions", (1, 3, 4)))
     all_segments, all_subject_ids, all_reps, all_exercises, all_starts, all_masks = [], [], [], [], [], []
-    normalization_stats, quality_mask_reports = [], []
     print(f"\n[DB3 Data Prep] exercises={exercises}, {config['orig_fs']}Hz -> {config['target_fs']}Hz")
 
     for subject_id in subject_ids:
@@ -114,20 +113,6 @@ def prepare_data_db3(data_loader, subject_ids, config, exercises=None, return_me
             def compress(values):
                 return values if emg_max <= 0.0 else np.log1p(255.0 * values / emg_max) / np.log1p(255.0) * emg_max
             q05, q99 = np.percentile(compress(train_values), [5, 99])
-            normalization_stats.append({
-                "subject_id": int(subject_id),
-                "fit_repetitions": [int(rep) for rep in train_reps],
-                "fit_window_count": int(sum(
-                    1 for item in parts for _, rep in item["rows"] if rep in train_reps
-                )),
-                "emg_max": emg_max,
-                "q05": float(q05),
-                "q99": float(q99),
-            })
-            quality_mask_reports.extend([
-                {"subject_id": int(subject_id), "exercise": int(item["exercise"]), **item["quality_report"]}
-                for item in parts
-            ])
             subject_count = 0
             for item in parts:
                 norm = np.clip((compress(item["emg"]) - q05) / (q99 - q05 + 1e-8), 0.0, 1.0)
@@ -152,7 +137,5 @@ def prepare_data_db3(data_loader, subject_ids, config, exercises=None, return_me
         "start": np.asarray(all_starts, dtype=np.int64),
         "quality_mask": np.stack(all_masks).astype(np.float32),
         "normalization": "train_repetitions_only",
-        "normalization_stats": normalization_stats,
-        "quality_mask_reports": quality_mask_reports,
         "window_policy": "exercise_separated_single_nonzero_repetition",
     }

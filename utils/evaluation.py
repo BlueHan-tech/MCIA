@@ -111,7 +111,7 @@ def validate_epoch_mcia(model, dataloader, device, mask_gen, criterion,
 
 def validate_epoch_mcia_masked(model, dataloader, device, mask_gen, criterion=None,
                               difficulty=1.0, cfg_dropout_prob=0.0, scenario=None,
-                              use_personal_condition=False, domain_id=None):
+                              use_personal_condition=False):
     """聚焦缺失区域的验证。
 
     返回用于模型选择与日志记录的指标。
@@ -160,15 +160,11 @@ def validate_epoch_mcia_masked(model, dataloader, device, mask_gen, criterion=No
             # free condition dropout is a training-only perturbation.
             _ = cfg_dropout_prob
             drop_condition = False
-            domain_id_t = (
-                torch.full((B,), int(domain_id), dtype=torch.long, device=device)
-                if domain_id is not None else None
-            )
             emg_pred = model(
                 emg_masked, mask=mask_1d, x_masked=emg_masked,
                 drop_condition=drop_condition,
                 side=side, age=age, gender=gender,
-                raw_time_mask=mask, domain_id=domain_id_t,
+                raw_time_mask=mask,
             )
             emg_completed = emg_pred.clamp(0.0, 1.0) * (1.0 - mask) + emg_clean * mask
 

@@ -535,7 +535,7 @@ def regenerate_exp3_abc_figures(run_dir: Path, config: dict) -> int:
             required_continuous = {
                 "continuous_target", "continuous_time_indices",
                 "continuous_overlap_counts", "continuous_dynamic_mask",
-                *(f"pred_{grp}_continuous" for grp in ("A", "B", "C")),
+                *(f"pred_{grp}_continuous" for grp in ("A", "B")),
             }
             missing_continuous = sorted(required_continuous.difference(data.files))
             if missing_continuous:
@@ -546,7 +546,7 @@ def regenerate_exp3_abc_figures(run_dir: Path, config: dict) -> int:
                 continue
             target = np.asarray(data["continuous_target"])
             group_preds = {
-                grp: np.asarray(data[f"pred_{grp}_continuous"]) for grp in ("A", "B", "C")
+                grp: np.asarray(data[f"pred_{grp}_continuous"]) for grp in ("A", "B")
             }
             time_indices = np.asarray(data["continuous_time_indices"], dtype=np.int64)
             overlap_counts = np.asarray(data["continuous_overlap_counts"], dtype=np.int16)
@@ -567,7 +567,7 @@ def regenerate_exp3_abc_figures(run_dir: Path, config: dict) -> int:
         )
         count += len(saved)
         print(
-            f"  Exp3 S{subject_id:02d}: {len(saved)} continuous ABC figures "
+            f"  Exp3 S{subject_id:02d}: {len(saved)} continuous A/B figures "
             f"({expected_groups}) time_indices={selection.get('selected_time_indices', [])}"
         )
     return count
@@ -597,7 +597,7 @@ def regenerate_paper_figures(run_dir: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Regenerate current DB2 Fig.1 quantitative metrics, DB2 per-channel error heatmap, DB2 Fig.2 candidates, DB3 completion, and anatomy ABC angle figures from an existing run. "
+            "Regenerate current DB2 Fig.1 quantitative metrics, DB2 per-channel error heatmap, DB2 Fig.2 candidates, DB3 completion, and anatomy A/B angle figures from an existing run. "
             "Legacy paper figures are pending redesign and skipped by default."
         )
     )
@@ -641,7 +641,7 @@ def main() -> None:
     print(f"DB2 per-channel masked MAE CSV: {heatmap_csv}")
     print(f"DB2 Fig.2 candidate figures: {db2_count}")
     print(f"DB3 completion figures: {db3_count}")
-    print(f"Exp3 anatomy ABC figures: {exp3_count}")
+    print(f"Exp3 anatomy A/B figures: {exp3_count}")
 
     if args.include_legacy_paper_figures:
         try:

@@ -17,6 +17,8 @@ from models.completion.mask_generators import ScenarioMixMaskGenerator
 from utils.loss_functions import EMGImputationLoss
 from utils.run_layout import apply_run_paths
 
+import torch.nn as nn
+
 
 def load_yaml_config(project_root: Path) -> Dict:
     with open(project_root / "config.yaml", "r", encoding="utf-8") as f:
@@ -66,6 +68,8 @@ def build_mcia(config: Dict, device: str) -> MCIA:
         n_synergies=config.get("n_synergies", 6),
         synergy_gate_scale=config.get("synergy_gate_scale", 0.5),
         synergy_dropout=config.get("synergy_dropout", 0.1),
+        use_envelope_branch=config.get("use_envelope_branch", False),
+        envelope_kernel_size=config.get("envelope_kernel_size", 25),
     ).to(device)
 
 
@@ -197,6 +201,9 @@ def build_structural_loss(config: Dict, device: str) -> Optional[EMGImputationLo
         patch_rms_loss_weight=config.get("patch_rms_loss_weight", 0.0),
         envelope_kernel_size=config.get("envelope_kernel_size", 25),
         patch_rms_size=config.get("patch_rms_size", config.get("patch_size", 8)),
+        range_penalty_weight=config.get("range_penalty_weight", 0.0),
+        range_low=config.get("range_low", 0.0),
+        range_high=config.get("range_high", 1.0),
     ).to(device)
 
 
@@ -271,14 +278,58 @@ def train_mcia_epoch(
     return total_loss / max(len(dataloader), 1)
 
 
+def _patch_boundary_crossfade(pred: torch.Tensor, patch_size: int) -> torch.Tensor:
+    """仅在 patch 边界采样点上做 [0.25, 0.5, 0.25] 三点淡化，抑制补全 patch 间台阶。"""
+    B, T, C = pred.shape
+    if T % patch_size != 0 or patch_size < 2 or T // patch_size < 2:
+        return pred
+    boundary = torch.zeros(T, dtype=pred.dtype, device=pred.device)
+    boundary[patch_size::patch_size] = 1.0
+    boundary[patch_size - 1::patch_size] = 1.0
+    boundary[0] = 0.0
+    boundary[-1] = 0.0
+    kernel = torch.tensor([0.25, 0.5, 0.25], dtype=pred.dtype, device=pred.device)
+    smoothed = F.conv1d(
+        pred.permute(0, 2, 1).reshape(B * C, 1, T), kernel.view(1, 1, 3), padding=1
+    ).reshape(B, C, T).permute(0, 2, 1)
+    return torch.where(boundary.view(1, T, 1) > 0.5, smoothed, pred)
+
+
+def _linear_gap_fill(pred: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """缺失采样点用同通道最近已知采样点的线性插值填充；无已知上下文时回退预测值。
+
+    pred/mask: (B, T, C) numpy，mask 1=观测、0=缺失。返回仅缺失区被替换的数组。
+    """
+    filled = pred.copy()
+    B, T, C = pred.shape
+    for b in range(B):
+        for c in range(C):
+            observed = mask[b, :, c] >= 0.5
+            missing = ~observed
+            if not missing.any() or not observed.any():
+                continue
+            known_idx = np.flatnonzero(observed)
+            missing_idx = np.flatnonzero(missing)
+            filled[b, missing_idx, c] = np.interp(missing_idx, known_idx, pred[b, known_idx, c])
+    return filled
+
+
 @torch.no_grad()
 def complete_with_mask(
     model: MCIA,
     emg: torch.Tensor,
     mask: torch.Tensor,
     domain_id: Optional[int] = None,
+    patch_boundary_smooth: bool = False,
+    patch_size: int = 8,
+    refine_steps: int = 1,
 ) -> torch.Tensor:
-    """使用样本级掩码 (B,T,C) 补全 EMG，并保留已观测采样点。"""
+    """使用样本级掩码 (B,T,C) 补全 EMG，并保留已观测采样点。
+
+    可选增强（默认全部关闭，保持原行为）：
+      patch_boundary_smooth: 对缺失区 patch 边界做三点淡化；
+      refine_steps > 1: 将上一轮补全结果作为全观测上下文再前向多轮自精炼。
+    """
     emg_masked = emg * mask
     mask_1d = derive_ch_mask_from_sample_mask(mask)
     B = emg.shape[0]
@@ -294,7 +345,85 @@ def complete_with_mask(
         raw_time_mask=mask,
         domain_id=domain_id_t,
     )
-    return pred.clamp(0.0, 1.0) * (1.0 - mask) + emg * mask
+    pred = pred.clamp(0.0, 1.0)
+    for _ in range(max(0, int(refine_steps) - 1)):
+        context = pred * (1.0 - mask) + emg * mask
+        pred = model(
+            context,
+            mask=torch.ones_like(mask_1d),
+            x_masked=context,
+            drop_condition=False,
+            raw_time_mask=torch.ones_like(mask),
+            domain_id=domain_id_t,
+        ).clamp(0.0, 1.0)
+    if patch_boundary_smooth:
+        pred = _patch_boundary_crossfade(pred, patch_size)
+    return pred * (1.0 - mask) + emg * mask
+
+
+@torch.no_grad()
+def complete_with_mask_uncertainty(
+    model: MCIA,
+    emg: torch.Tensor,
+    mask: torch.Tensor,
+    domain_id: Optional[int] = None,
+    n_samples: int = 8,
+    std_gate: float = 0.15,
+    patch_boundary_smooth: bool = False,
+    patch_size: int = 8,
+) -> torch.Tensor:
+    """MC-Dropout 不确定性门控补全。
+
+    仅启用 Dropout 模块做 n 次随机前向；缺失区预测方差低于 std_gate 的采样点
+    使用 MC 均值预测，方差高于门限的采样点回退为观测上下文线性插值（保守补全）。
+    输出裁剪至 [0,1] 并复制回观测值。
+    """
+    was_training = model.training
+    model.eval()
+    for module in model.modules():
+        if isinstance(module, nn.Dropout):
+            module.train()
+    try:
+        emg_masked = emg * mask
+        mask_1d = derive_ch_mask_from_sample_mask(mask)
+        B = emg.shape[0]
+        domain_id_t = (
+            torch.full((B,), domain_id, dtype=torch.long, device=emg.device)
+            if domain_id is not None else None
+        )
+        samples = []
+        for _ in range(max(1, int(n_samples))):
+            pred = model(
+                emg_masked,
+                mask=mask_1d,
+                x_masked=emg_masked,
+                drop_condition=False,
+                raw_time_mask=mask,
+                domain_id=domain_id_t,
+            ).clamp(0.0, 1.0)
+            samples.append(pred)
+        stacked = torch.stack(samples, dim=0)
+        mean_pred = stacked.mean(dim=0)
+        std_pred = stacked.std(dim=0, unbiased=False)
+    finally:
+        if was_training:
+            model.train()
+        else:
+            model.eval()
+
+    mean_np = mean_pred.cpu().numpy()
+    std_np = std_pred.cpu().numpy()
+    mask_np = mask.detach().cpu().numpy()
+    emg_np = emg.detach().cpu().numpy()
+    confident = (std_np <= float(std_gate)) | (mask_np >= 0.5)
+    # 插值锚定真实观测值：观测区先复制回 emg，再对缺失区做线性插值。
+    anchored = mean_np * (1.0 - mask_np) + emg_np * mask_np
+    gap_fill = _linear_gap_fill(anchored, mask_np)
+    conservative = np.where(confident, mean_np, gap_fill)
+    pred = torch.from_numpy(conservative).to(emg.device, dtype=emg.dtype)
+    if patch_boundary_smooth:
+        pred = _patch_boundary_crossfade(pred, patch_size)
+    return pred * (1.0 - mask) + emg * mask
 
 
 def safe_pearson_np(a: np.ndarray, b: np.ndarray) -> float:

@@ -1,7 +1,6 @@
 """Bounded synthetic checks; no datasets, checkpoints or experiment runs."""
 import importlib.util
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,16 +57,10 @@ def test_completion_paths():
     torch.testing.assert_close(result, torch.where(channel_mask[:, None, :].bool(), x,
                                                    torch.ones_like(x)), rtol=0, atol=0)
 
-    class Detector:
-        def detect(self, sample):
-            return mask[0].numpy()
-        def detect_batch(self, samples):
-            return {'mask': mask.numpy()}
-
     angle = load_script('04_eval_db3_angle_raw_vs_augmented.py')
     gesture = load_script('05_eval_db3_gesture_raw_vs_augmented.py')
-    np.testing.assert_array_equal(angle.apply_mcia(model, x.numpy(), Detector(), 'cpu'), expected.numpy())
-    values, _ = gesture.apply_mcia(model, x.numpy(), Detector(), 'cpu', 2)
+    np.testing.assert_array_equal(angle.apply_mcia(model, x.numpy(), mask.numpy(), 'cpu'), expected.numpy())
+    values, _ = gesture.apply_mcia(model, x.numpy(), mask.numpy(), 'cpu', 2)
     np.testing.assert_array_equal(values, expected.numpy())
 
     class MaskGen:
@@ -81,7 +74,8 @@ def test_completion_paths():
     for guidance in (0.0, 2.0):
         result = _run_model_on_batch(model, x, mask, torch.device('cpu'), guidance_scale=guidance)
         torch.testing.assert_close(result, expected, rtol=0, atol=0)
-    output = Path(tempfile.mkdtemp(prefix='mcia_range_panel_')) / 'completion.png'
+    output = ROOT / 'outputs' / 'matplotlib_diagnosis' / 'completion_output_range_smoke.png'
+    output.parent.mkdir(parents=True, exist_ok=True)
     plot_completion_panel(x[0].numpy(), expected[0].numpy(), mask[0].numpy(),
                           output, title='Synthetic output range contract')
     assert output.stat().st_size > 0

@@ -25,6 +25,9 @@ class EMGImputationLoss(nn.Module):
         patch_rms_loss_weight: float = 0.0,
         envelope_kernel_size: int = 25,
         patch_rms_size: int = 8,
+        range_penalty_weight: float = 0.0,
+        range_low: float = 0.0,
+        range_high: float = 1.0,
     ):
         super().__init__()
         self.w_charbonnier = w_charbonnier
@@ -40,6 +43,9 @@ class EMGImputationLoss(nn.Module):
         self.patch_rms_loss_weight = float(patch_rms_loss_weight)
         self.envelope_kernel_size = max(3, int(envelope_kernel_size) | 1)
         self.patch_rms_size = max(1, int(patch_rms_size))
+        self.range_penalty_weight = float(range_penalty_weight)
+        self.range_low = float(range_low)
+        self.range_high = float(range_high)
         self.current_epoch = 0
         self.window_funcs: Dict[Tuple[torch.device, int], torch.Tensor] = {}
 
@@ -179,6 +185,15 @@ class EMGImputationLoss(nn.Module):
         denom = band.sum().clamp_min(1.0)
         return (torch.abs(grad_pred - grad_target) * band).sum() / denom
 
+    def _range_penalty(self, pred: torch.Tensor, loss_mask: torch.Tensor) -> torch.Tensor:
+        """软范围惩罚：缺失区预测超出 [range_low, range_high] 的二次惩罚。
+
+        与推理期硬 clip 配套，使训练目标与交付约束一致；权重 0 时完全关闭。
+        """
+        low = torch.relu(self.range_low - pred).square()
+        high = torch.relu(pred - self.range_high).square()
+        return self._masked_mean(low + high, loss_mask)
+
     def _base_loss(self, pred: torch.Tensor, target: torch.Tensor,
                    loss_mask: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         if loss_mask.sum() < 1:
@@ -190,6 +205,7 @@ class EMGImputationLoss(nn.Module):
                 "boundary_grad_loss": zero,
                 "envelope_loss": zero,
                 "patch_rms_loss": zero,
+                "range_penalty_loss": zero,
             }
 
         charbonnier = self._charbonnier(pred, target, loss_mask)
@@ -198,6 +214,10 @@ class EMGImputationLoss(nn.Module):
         boundary = self._boundary_grad(pred, target, loss_mask)
         envelope = self._envelope_loss(pred, target, loss_mask)
         patch_rms = self._patch_rms_loss(pred, target, loss_mask)
+        range_penalty = (
+            self._range_penalty(pred, loss_mask)
+            if self.range_penalty_weight > 0 else pred.new_zeros(())
+        )
         total = (
             self.w_charbonnier * charbonnier
             + self.w_ncc * ncc
@@ -205,6 +225,7 @@ class EMGImputationLoss(nn.Module):
             + self.w_boundary * boundary
             + self.envelope_loss_weight * envelope
             + self.patch_rms_loss_weight * patch_rms
+            + self.range_penalty_weight * range_penalty
         )
         return total, {
             "charbonnier_loss": charbonnier,
@@ -213,6 +234,7 @@ class EMGImputationLoss(nn.Module):
             "boundary_grad_loss": boundary,
             "envelope_loss": envelope,
             "patch_rms_loss": patch_rms,
+            "range_penalty_loss": range_penalty,
         }
 
     def forward(self, pred_x0: torch.Tensor, target_x0: torch.Tensor,

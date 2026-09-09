@@ -846,23 +846,6 @@ chan_valid_mask = (mask_final.mean(dim=1) > 0.5)  # (B, C)，通道超过一半�
   这是最有说服力的间接评估
 ```
 
-# 下步执行
-```
-① 重跑 02_finetune_mcia_db3_amputee.py
-  → 用新 best_model.pth + adapter + domain_embed
-  → 产出 per-subject: direct_transfer / pretrained_finetuned / amputee_only
-
-② 跑 03_generate_augmented_db3_semg.py（Exp2c）
-  → 使用 DB3 Rule anomaly mask 检测异常通道、死通道和异常 patch
-  → 用 pretrained_finetuned 补全 rule-mask 标记的区域
-  → 在当前 run 下产出 02_db3_transfer_completion/augmented_emg/db3_Sxx.npz
-  → 保存并校验 mask、mask_mode=rule、patch_mask、dead_channels
-
-③ 跑 04_eval_db3_angle_raw_vs_augmented.py 组B和组C
-  → 用 Exp2c 产出的 enhanced EMG
-  → 对比组A的 baseline
-```
-
 # 图片规划
 ## 实验一：MCIA 在健康人 DB2 上的补全质量
 **Figure 1：架构图（方法图，放在 Method 节）**
@@ -875,14 +858,6 @@ X 轴：S1/S2/S3/S4 四个场景。Y 轴：corr_masked。三组柱子：MCIA（�
 X 轴：epoch。Y 轴左：train loss 各分量（char/ncc/stft）。Y 轴右：val corr_masked（S1/S2/S3/S4 四条线）。标注 curriculum stage 切换点（垂直虚线）。
 **Table 1：定量指标汇总表**
 行：各 test 被试（S33-S40）+ 均值±std。列：corr_masked / corr_masked_partial / RMSE / MAE（缺失区）。对比三个方法：MCIA / TimeMAE / Cubic Spline。
-## 实验二：MCIA 迁移到截肢患者
-**Figure 5：迁移学习示意图**
-左：DB2 健康人预训练（MCIA 主干）。右：DB3 截肢患者微调（只有 adapter + domain_embed + pred_head 可训练，主干冻结）。标注可训练参数量（26,824 / 3.61M = 0.9%）。
-**Figure 6：规则检测器效果可视化**
-选 S06 和 S03 各一个典型窗口。上行：原始信号（含死通道/漏采）。下行：规则检测后的 mask，标注 Step0（红色死通道）/ Step1（橙色漏采段）/ Step2（黄色弱肌电段）。
-**Table 2：Exp2a 微调 loss 对比表**
-行：11 个被试。列：pretrained_finetuned loss / amputee_only loss / 差值。最后一行均值。S06/S07 用脚注说明死通道影响。
-
 ## Experiment 3: continuous Key10 angle estimation after EMG completion
 **Figure 7: Key10 trajectory comparison**
 Select dynamic test windows and show the fixed ten MCP/IP/PIP channels: thumb MCP/IP plus MCP/PIP pairs for index, middle, ring, and little fingers. Plot Ground Truth and A/B/C on the same test-local windows.
@@ -960,38 +935,17 @@ Figure 0 → Table 1 → Figure 3 → Figure 8/9（这四个是审稿人最关�
 
 > _注：公平对比需统一口径。TimeMAE 的 corr_masked（待补充）预计低于其 corr_whole。_
 
-## 实验二 2a：截肢患者迁移——少样本微调对比（DB3，11 人）
-
-伪缺失率 mask=0.25；CC = 缺失区 Pearson 相关系数。
-
-| **被试**    | **amputee_only CC（从头训练）** | **pretrained_finetuned CC（预训练+微调）** | **direct_transfer CC（直接迁移，无微调）** | **提升direct vs amputee** |
-| --------- | ------------------------- | ----------------------------------- | -------------------------------- | ----------------------- |
-| **S01**   | 0.215                     | 0.368                               | 0.369                            | +0.154                  |
-| **S02**   | 0.267                     | 0.415                               | 0.415                            | +0.148                  |
-| **S03**   | 0.373                     | 0.509                               | 0.509                            | +0.136                  |
-| **S04**   | 0.139                     | 0.348                               | 0.348                            | +0.209                  |
-| **S05**   | 0.032                     | 0.230                               | 0.231                            | +0.199                  |
-| **S06 †** | 0.023                     | 0.254                               | 0.253                            | +0.230                  |
-| **S07 †** | 0.001                     | 0.032                               | 0.031                            | +0.030                  |
-| **S08**   | 0.326                     | 0.482                               | 0.483                            | +0.157                  |
-| **S09**   | 0.235                     | 0.484                               | 0.484                            | +0.249                  |
-| **S10**   | 0.183                     | 0.448                               | 0.448                            | +0.265                  |
-| **S11**   | 0.308                     | 0.591                               | 0.590                            | +0.282                  |
-| **均值**    | **0.173**                 | **0.379**                           | **0.378**                        | **+0.187**              |
-
-> _注：† S06/S07 含永久死通道（Ch9/Ch10 全程平线），信号质量最差，提升幅度相对较小。pretrained_finetuned ≈ direct_transfer，说明少样本微调在当前设置下未能带来额外收益。_
-
 ## Experiment 3: fixed Key10 continuous angle estimation (DB3)
 
-A/B/C use the same KinematicTCN architecture, repetition-based train/validation/test split, Key10 target, and evaluation procedure. The only group difference is the EMG representation: raw, healthy-prior enhanced, or subject-finetuned enhanced.
+A/B use the same KinematicTCN architecture, repetition-based train/validation/test split, Key10 target, and evaluation procedure. The only group difference is the EMG representation: raw or healthy-prior enhanced.
 
 The fixed target is the zero-based CyberGlove subset `[1, 2, 4, 5, 7, 8, 11, 12, 15, 16]`: thumb MCP/IP plus MCP/PIP pairs for index, middle, ring, and little fingers.
 
-| **Subset** | **Group A** | **Group B** | **Group C** |
-| ---------- | ----------- | ----------- | ----------- |
-| **Global Key10** | pending new Key10 run | pending new Key10 run | pending new Key10 run |
-| **MCP** | pending new Key10 run | pending new Key10 run | pending new Key10 run |
-| **PIP/IP** | pending new Key10 run | pending new Key10 run | pending new Key10 run |
+| **Subset** | **Group A** | **Group B** |
+| ---------- | ----------- | ----------- |
+| **Global Key10** | pending new Key10 run | pending new Key10 run |
+| **MCP** | pending new Key10 run | pending new Key10 run |
+| **PIP/IP** | pending new Key10 run | pending new Key10 run |
 
 > The old 22-dimensional figures and values are historical artifacts only and are not reported as current results. New reports additionally contain a dynamic subset for trace-quality diagnosis; the full Key10 test set remains the primary result.
 

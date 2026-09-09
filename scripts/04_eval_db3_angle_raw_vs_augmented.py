@@ -4,7 +4,6 @@
 各组在每个受试者内使用相同的基于重复次数的训练/验证/测试集划分：
 A：原始 EMG 训练 / 原始 EMG 验证 / 原始 EMG 测试。
 B：健康先验 MCIA 增强 EMG 训练/验证/测试，TCN 从零开始训练。
-C：受试者微调 MCIA 增强 EMG 训练/验证/测试，TCN 从零开始训练。
 
 该设计消除了原有原始训练/增强测试之间的分布不匹配问题，
 用于检验一致的增强 EMG 表征是否有助于提升下游运动学估计性能。
@@ -66,40 +65,6 @@ from utils.kinematic_target import (
 
 ANGLE_SUBSETS = KEY10_SUBSETS
 ANGLE_PLOT_GROUPS = KEY10_PLOT_GROUPS
-# Prediction files carrying Group C must record the inference contract.  This
-# prevents a resume from mixing legacy C predictions (which may have omitted
-# the adapter or DB3 domain condition) with the corrected experiment.
-C_INFERENCE_CONTRACT = "adapter_loaded_domain_id_1_v1"
-
-
-class TransferAdapter(nn.Module):
-    """与 Exp2 微调产出的检查点结构一致的 Adapter 模块。"""
-
-    def __init__(self, dim, bottleneck_dim=32):
-        super().__init__()
-        self.norm = nn.LayerNorm(dim)
-        self.down = nn.Linear(dim, bottleneck_dim)
-        self.act = nn.GELU()
-        self.up = nn.Linear(bottleneck_dim, dim)
-        nn.init.zeros_(self.up.weight)
-        nn.init.zeros_(self.up.bias)
-
-    def forward(self, x):
-        return x + self.up(self.act(self.down(self.norm(x))))
-
-
-def attach_transfer_adapters(model, config, device):
-    """加载受试者检查点前，挂载与 Exp2 相同的轻量 Adapter。"""
-    n_blocks = int(config.get("transfer_adapter_blocks", 2))
-    bottleneck = int(config.get("transfer_adapter_bottleneck", 32))
-    dim = int(getattr(model.norm, "normalized_shape", (model.mask_token.shape[-1],))[0])
-    if n_blocks <= 0:
-        return model
-    for block in model.blocks[-n_blocks:]:
-        block.adapter = TransferAdapter(dim, bottleneck).to(device)
-    return model
-
-
 def build_tcn(config, n_emg_channels, device):
     if int(config["regressor_n_angle_channels"]) != KEY10_DIM:
         raise ValueError(f"Exp3 requires fixed Key10 output dimension {KEY10_DIM}.")
@@ -190,16 +155,9 @@ def _exp1_checkpoint_candidates(config):
     return candidates
 
 
-def _adapter_state_prefixes(model, config, device):
-    attach_transfer_adapters(model, config, device)
-    n_blocks = int(config.get("transfer_adapter_blocks", 2))
-    return tuple(f"blocks.{index}.adapter." for index in range(len(model.blocks) - n_blocks, len(model.blocks)))
-
-
-def _load_mcia_from_checkpoint(config, device, checkpoint_path, label, attach_adapters=False):
+def _load_mcia_from_checkpoint(config, device, checkpoint_path, label):
     model = build_mcia(config, device)
-    prefixes = _adapter_state_prefixes(model, config, device) if attach_adapters else ()
-    load_mcia_state_dict(model, checkpoint_path, device, required_state_prefixes=prefixes)
+    load_mcia_state_dict(model, checkpoint_path, device)
     model.eval()
     print(f"  [MCIA:{label}] Loaded: {checkpoint_path}")
     return model, checkpoint_path
@@ -208,18 +166,8 @@ def _load_mcia_from_checkpoint(config, device, checkpoint_path, label, attach_ad
 def load_healthy_prior_mcia(config, device):
     for path in _exp1_checkpoint_candidates(config):
         if path.exists():
-            return _load_mcia_from_checkpoint(config, device, path, "healthy_prior", False)
+            return _load_mcia_from_checkpoint(config, device, path, "healthy_prior")
     print("  [MCIA:B] No healthy-prior checkpoint found; Group B will be skipped")
-    return None, None
-
-
-def load_subject_finetuned_mcia(subject_id, config, device):
-    subject_dir = Path(config["transfer_checkpoints_dir"]) / f"S{subject_id:02d}"
-    path = subject_dir / "pretrained_finetuned.pth"
-    if path.exists():
-        label = f"S{subject_id:02d}_subject_ft"
-        return _load_mcia_from_checkpoint(config, device, path, label, True)
-    print(f"  [MCIA:C] No subject-finetuned checkpoint found for S{subject_id:02d}; Group C will be skipped")
     return None, None
 
 
@@ -710,7 +658,6 @@ ANGLE_PLOT_STYLES = {
     "target": ("#111111", "Ground Truth", "-", 1.45, 0.95),
     "A": ("#1f77b4", "A Raw", "-", 1.05, 0.88),
     "B": ("#d62728", "B Healthy-prior", "-", 1.05, 0.82),
-    "C": ("#9467bd", "C Subject-ft", "-.", 1.05, 0.82),
 }
 
 
@@ -719,7 +666,7 @@ def _plot_dim_trace(ax, xs: np.ndarray, dim: int, target_trial: np.ndarray,
     color, label, linestyle, width, alpha = ANGLE_PLOT_STYLES["target"]
     ax.plot(xs, target_trial[:, dim], color=color, lw=width, alpha=alpha,
             linestyle=linestyle, label=label)
-    for grp in ("A", "B", "C"):
+    for grp in ("A", "B"):
         pred = group_trials.get(grp)
         if pred is None:
             continue
@@ -764,7 +711,7 @@ def _save_abc_anatomy_plot(path: Path, target_segment: np.ndarray, group_segment
     fig.legend(handles, labels, loc="upper center", ncol=4, fontsize=9, frameon=False,
                bbox_to_anchor=(0.5, 0.975))
     metric_parts = []
-    for grp in ("A", "B", "C"):
+    for grp in ("A", "B"):
         pred = group_segments.get(grp)
         if pred is not None:
             metric_parts.append(f"{grp} RMSE={_safe_dim_metrics(pred, target_segment, dims)['rmse']:.4f}")
@@ -772,7 +719,7 @@ def _save_abc_anatomy_plot(path: Path, target_segment: np.ndarray, group_segment
         f"DB3 S{subject_id:02d} | Key10 proxy | {len(target_segment) / target_fs:.2f}s "
         f"continuous offline test trajectory | Segment {segment_rank:02d} | "
         f"time idx {selection_info['time_start']}-{selection_info['time_end_exclusive'] - 1} | "
-        f"{group_name.replace('_', ' ').title()} ABC comparison"
+        f"{group_name.replace('_', ' ').title()} A/B comparison"
     )
     detail_parts = [
         f"{selection_info['selection_mode']} | dynamic score={_metric_str(selection_info['dynamic_score'])} | "
@@ -818,17 +765,17 @@ def save_abc_comparison_figures(
     times = np.asarray(continuous_time_indices, dtype=np.int64)
     overlaps = np.asarray(continuous_overlap_counts, dtype=np.int16)
     dynamics = np.asarray(continuous_dynamic_mask, dtype=bool)
-    required_groups = {"A", "B", "C"}
+    required_groups = {"A", "B"}
     if target.ndim != 2 or not required_groups.issubset(group_predictions):
-        raise ValueError("continuous ABC figures require target and A/B/C continuous predictions")
+        raise ValueError("continuous A/B figures require target and A/B continuous predictions")
     if any(np.asarray(group_predictions[group]).shape != target.shape for group in required_groups):
-        raise ValueError("continuous ABC predictions must align with the continuous target")
+        raise ValueError("continuous A/B predictions must align with the continuous target")
     selection = build_abc_visualization_selection(
         target, times, overlaps, dynamics, cfg, low_dynamic_coverage
     )
     subject_dir = out_dir / f"S{subject_id:02d}"
     if subject_dir.exists():
-        for stale_path in subject_dir.glob(f"S{subject_id:02d}_*_ABC.png"):
+        for stale_path in subject_dir.glob(f"S{subject_id:02d}_*_AB.png"):
             stale_path.unlink()
     saved = []
     target_fs = int(cfg["target_fs"])
@@ -847,7 +794,7 @@ def save_abc_comparison_figures(
                 subject_dir /
                 f"S{subject_id:02d}_continuous_{rank:02d}_"
                 f"t{segment['time_start']:06d}-{segment['time_end_exclusive'] - 1:06d}_"
-                f"score{score_tag}_{group_name}_ABC.png"
+                f"score{score_tag}_{group_name}_AB.png"
             )
             _save_abc_anatomy_plot(
                 path, target[left:right], group_segments, group_spec,
@@ -888,7 +835,7 @@ def _fmt_nan_summary(vals):
     return f"{np.nanmean(arr):.4f}+/-{np.nanstd(arr):.4f}(n={n})"
 
 
-def aggregate_and_print_summary(all_subject_results, groups=("A", "B", "C")):
+def aggregate_and_print_summary(all_subject_results, groups=("A", "B")):
     print(f"\n{'='*70}")
     print("Cross-subject summary (nanmean +/- nanstd)")
     print(f"{'='*70}")
@@ -913,7 +860,7 @@ def aggregate_and_print_summary(all_subject_results, groups=("A", "B", "C")):
             )
 
 
-def aggregate_continuous_summary(report: dict, groups=("A", "B", "C")) -> None:
+def aggregate_continuous_summary(report: dict, groups=("A", "B")) -> None:
     print("\n" + "=" * 70)
     print("Cross-subject continuous-output summary (nanmean +/- nanstd)")
     print("=" * 70)
@@ -1044,7 +991,6 @@ def _base_report() -> dict:
         "design": {
             "A": "raw train/val/test; TCN trained from scratch",
             "B": "healthy-prior MCIA enhanced train/val/test; TCN trained from scratch",
-            "C": "subject-finetuned MCIA enhanced train/val/test; TCN trained from scratch",
         },
         "angle_target": key10_target_metadata(),
         "subjects": [],
@@ -1077,18 +1023,6 @@ def _prediction_has_groups(npz_path: Path, run_groups: set[str]) -> bool:
         return False
     with np.load(npz_path) as data:
         assert_key10_prediction_payload(data, str(npz_path))
-        if "C" in run_groups and "pred_C" in data:
-            contract_key = "mcia_c_inference_contract"
-            observed = (
-                str(np.asarray(data[contract_key]).item())
-                if contract_key in data else None
-            )
-            if observed != C_INFERENCE_CONTRACT:
-                raise RuntimeError(
-                    f"Legacy Group C prediction at {npz_path} has inference contract "
-                    f"{observed!r}, expected {C_INFERENCE_CONTRACT!r}. "
-                    "Do not resume it; create a fresh run for the corrected C condition."
-                )
         return all(f"pred_{grp}" in data for grp in run_groups)
 
 
@@ -1174,12 +1108,12 @@ def main():
     parser = argparse.ArgumentParser(description="Exp3 DB3 angle estimation")
     parser.add_argument(
         "--groups",
-        default="A,B,C",
-        help="Comma-separated groups to run. A=raw, B=healthy-prior enhanced, C=subject-finetuned enhanced.",
+        default="A,B",
+        help="Comma-separated groups to run. A=raw, B=healthy-prior enhanced.",
     )
     args = parser.parse_args()
     run_groups = {g.strip().upper() for g in args.groups.split(",") if g.strip()}
-    valid_groups = {"A", "B", "C"}
+    valid_groups = {"A", "B"}
     unknown = run_groups - valid_groups
     if unknown:
         raise ValueError(f"Unknown Exp3 groups: {sorted(unknown)}")
@@ -1213,7 +1147,7 @@ def main():
     report = _load_existing_report(out_path) or _base_report()
     start_ts = time.time()
     print("=" * 70)
-    print("[Exp3] DB3 fixed-Key10 proxy angle estimation - groups A / B / C")
+    print("[Exp3] DB3 fixed-Key10 proxy angle estimation - groups A / B")
     print("=" * 70)
     _log(log_path, f"Exp3 started | groups={','.join(sorted(run_groups))} | run_dir={run_dir}")
 
@@ -1263,7 +1197,7 @@ def main():
                     required_continuous = {
                         "continuous_target", "continuous_time_indices",
                         "continuous_overlap_counts", "continuous_dynamic_mask",
-                        *(f"pred_{grp}_continuous" for grp in ("A", "B", "C")),
+                        *(f"pred_{grp}_continuous" for grp in ("A", "B")),
                     }
                     missing_continuous = sorted(required_continuous.difference(data.files))
                     if missing_continuous:
@@ -1271,7 +1205,7 @@ def main():
                             f"S{subject_id:02d} has no complete continuous plotting payload: {missing_continuous}"
                         )
                     group_preds_for_fig = {
-                        grp: np.asarray(data[f"pred_{grp}_continuous"]) for grp in ("A", "B", "C")
+                        grp: np.asarray(data[f"pred_{grp}_continuous"]) for grp in ("A", "B")
                     }
                     continuous_target_for_fig = np.asarray(data["continuous_target"])
                     continuous_times_for_fig = np.asarray(data["continuous_time_indices"], dtype=np.int64)
@@ -1288,7 +1222,7 @@ def main():
                 subj_result["abc_comparison_figures"] = figure_files
                 subj_result["abc_visualization_selection"] = selection
                 print(
-                    f"  ABC visualization selected S{subject_id:02d}: "
+                    f"  A/B visualization selected S{subject_id:02d}: "
                     f"indices={selection.get('selected_indices', [])} "
                     f"scores={[round(float(s), 4) for s in selection.get('selected_scores', [])]}"
                 )
@@ -1387,32 +1321,6 @@ def main():
                     group_target = tgt_B
                 _log(log_path, f"S{subject_id:02d} group B done")
 
-            if "C" in run_groups:
-                _log(log_path, f"S{subject_id:02d} group C load/enhance/train")
-                subject_mcia, subject_ckpt = load_subject_finetuned_mcia(subject_id, config, device)
-                if subject_mcia is not None:
-                    print("  Building Group C enhanced EMG with subject-finetuned MCIA...")
-                    enh_C = make_enhanced_pool(
-                        subject_mcia, raw_emg, train_idx, val_idx, test_idx, quality_masks, device, domain_id=1
-                    )
-                    subj_ckpt_dir = ckpt_dir / f"S{subject_id:02d}"
-                    subj_ckpt_dir.mkdir(parents=True, exist_ok=True)
-                    result_C, subs_C, pred_C, tgt_C, calibration_C = evaluate_group(
-                        "C", enh_C, angle, train_idx, val_idx, test_idx, config, device,
-                        subj_ckpt_dir / "tcn_C_subject_ft_best.pth",
-                        subject_id,
-                        {"input": "enhanced", "mcia_source": "subject_finetuned", "mcia_checkpoint": str(subject_ckpt),
-                         "mcia_domain_id": 1, "mcia_adapters_loaded": True},
-                    )
-                    subj_result["groups"]["C"] = result_C
-                    subj_subsets["C"] = subs_C
-                    group_preds["C"] = pred_C
-                    if calibration_C is not None:
-                        group_calibrations["C"] = calibration_C
-                    if group_target is None:
-                        group_target = tgt_C
-                    _log(log_path, f"S{subject_id:02d} group C done")
-
             dynamic_test_indices = np.asarray(
                 dynamic_diag.get("splits", {}).get("test", {}).get("dynamic_indices", []),
                 dtype=np.int64,
@@ -1459,8 +1367,6 @@ def main():
                 pred_payload["dynamic_test_scores"] = dynamic_test_scores
             for grp, pred in group_preds.items():
                 pred_payload[f"pred_{grp}"] = pred
-            if "C" in group_preds:
-                pred_payload["mcia_c_inference_contract"] = np.asarray(C_INFERENCE_CONTRACT)
             if group_target is not None:
                 np.savez(npz_path, **pred_payload)
                 _log(log_path, f"S{subject_id:02d} prediction saved: {npz_path}")
@@ -1473,10 +1379,10 @@ def main():
             if group_target is not None:
                 try:
                     if continuous_plot_payload is None:
-                        raise RuntimeError("continuous output is required for 1280-point ABC figures")
+                        raise RuntimeError("continuous output is required for 1280-point A/B figures")
                     figure_files, selection = save_abc_comparison_figures(
                         subject_id,
-                        {grp: continuous_plot_payload[f"pred_{grp}_continuous"] for grp in ("A", "B", "C")},
+                        {grp: continuous_plot_payload[f"pred_{grp}_continuous"] for grp in ("A", "B")},
                         continuous_plot_payload["continuous_target"],
                         continuous_plot_payload["continuous_time_indices"],
                         continuous_plot_payload["continuous_overlap_counts"],
@@ -1491,15 +1397,15 @@ def main():
                     subj_result["abc_comparison_figures"] = figure_files
                     subj_result["abc_visualization_selection"] = selection
                     print(
-                        f"  ABC visualization selected S{subject_id:02d}: "
+                        f"  A/B visualization selected S{subject_id:02d}: "
                         f"indices={selection.get('selected_indices', [])} "
                         f"scores={[round(float(s), 4) for s in selection.get('selected_scores', [])]}"
                     )
                     _upsert_subject(report, subj_result)
                     _save_progress(out_path, report, start_ts)
-                    _log(log_path, f"S{subject_id:02d} ABC anatomy figures saved: {len(figure_files)}")
+                    _log(log_path, f"S{subject_id:02d} A/B anatomy figures saved: {len(figure_files)}")
                 except Exception as fig_exc:
-                    _log(log_path, f"WARNING S{subject_id:02d} ABC anatomy figures skipped: {fig_exc}")
+                    _log(log_path, f"WARNING S{subject_id:02d} A/B anatomy figures skipped: {fig_exc}")
             _log(log_path, f"S{subject_id:02d} done")
 
         except Exception as exc:

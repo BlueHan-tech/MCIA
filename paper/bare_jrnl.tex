@@ -288,32 +288,8 @@ The pretraining objective is formulated as
 \end{equation}
 To improve training stability, a warm-up masking strategy can be used at the beginning of training, allowing the model to first learn easier scattered-missing completion before moving to the full ScenarioMix degradation setting. The model obtained after this stage is regarded as an able-bodied sEMG generative prior and is used to initialize amputee-specific adaptation.
 
-\subsection{Few-shot Adaptation on DB3 Amputee Subjects}
-Because residual-limb sEMG from amputees differs substantially from able-bodied sEMG, subject-specific few-shot adaptation is performed on the NinaPro DB3 amputee dataset. For each DB3 subject, a subject-internal split is used to divide the data into a few-shot adaptation subset, validation indices, and a test subset. The few-shot subset is used for individualized adaptation, whereas the held-out windows are used for downstream raw-versus-augmented sEMG comparison. The DB3 raw signal is not treated as complete healthy ground truth; instead, unreliable channels and patches are identified by rule-based anomaly masks before completion.
-
-To evaluate the role of the able-bodied prior, three generative-model settings are compared:
-\begin{enumerate}
-    \item \emph{Direct transfer}: the DB2-pretrained model is directly applied without DB3 fine-tuning;
-    \item \emph{Pretrained-finetuned}: the DB2-pretrained model is used for initialization and is then fine-tuned on the DB3 few-shot subset;
-    \item \emph{Amputee-only}: the model is trained from scratch using only the DB3 few-shot subset without DB2 pretraining.
-\end{enumerate}
-
-During fine-tuning, a layer-wise learning-rate strategy is adopted. Backbone modules, including patch embedding, the spatial modeling backbone, and temporal upsampling, use a smaller learning rate to preserve the general muscle-synergy prior learned from able-bodied data. Adaptation modules, such as the fusion layer and prediction head, use a larger learning rate to more rapidly fit the target residual-limb distribution. This strategy balances prior preservation and subject-specific adaptation.
-
-\subsection{Generation of Augmented Amputee sEMG}
-After DB3 few-shot adaptation, the individualized generative model is used to augment amputee sEMG. For each DB3 subject, the augmentation script loads the corresponding pretrained-finetuned checkpoint by default. If the checkpoint is unavailable, the DB2-pretrained model is used as a fallback.
-
-For an input window $\mathbf{X}$, a DB3 rule anomaly mask $\mathbf{M}$ is constructed by detecting dead channels, unreliable channels, and abnormal patches. The masked input is then fed into the MAE for completion:
-\begin{equation}
-\hat{\mathbf{X}} = G_{\theta}(\mathbf{X}\odot\mathbf{M},\mathbf{M}).
-\end{equation}
-The final augmented signal is obtained through known-region fill-back:
-\begin{equation}
-\mathbf{X}_{aug} = \hat{\mathbf{X}} \odot (1-\mathbf{M}) + \mathbf{X} \odot \mathbf{M}.
-\end{equation}
-This strategy does not fully replace the original residual-limb sEMG. Instead, it generates completion only in the rule-identified unreliable regions under the constraint of the learned able-bodied prior while preserving reliable observations. The raw sEMG, augmented sEMG, and corresponding rule-mask metadata, including mask, mask mode, patch-level mask, and dead-channel indices, are saved for fair downstream kinematic regression.
-
-In the main DB3 completion path, the rule anomaly detector is fitted separately for each amputee subject and produces the mask regions to be completed. This avoids treating amputee residual-limb sEMG as complete healthy ground truth and aligns the augmentation step with observable signal reliability rather than artificial DB3 target hiding.
+\subsection{DB3 Amputee Adaptation Status}
+No DB3 subject-adaptation result is reported in the current manuscript.  The previous implementation synthetically hid portions of an amputee subject's own recording and used the unmasked recording as a reconstruction target.  That objective is not valid for genuinely unreliable residual-limb channels, so its checkpoints, augmentation outputs, and downstream comparisons are excluded.  A future DB3 adaptation experiment requires a separately specified no-ground-truth self-supervised objective and a protocol-valid evaluation.
 
 \subsection{Continuous Joint Angle Estimation}
 To evaluate whether generative sEMG augmentation benefits downstream motion decoding, a continuous joint angle regression network is constructed. Given an sEMG input $\mathbf{X}^{in}$, the regressor predicts the synchronized joint-angle sequence:
@@ -356,11 +332,6 @@ Three progressive experiments are designed to systematically validate the propos
 The first experiment evaluates whether the MAE model can learn reliable sEMG completion from able-bodied data. The model is pretrained on the DB2 able-bodied dataset using ScenarioMix masks and evaluated on held-out samples or held-out subjects.
 
 The objective of this experiment is to demonstrate that, under ScenarioMix degradation masks on fully observed DB2 sEMG, the anatomy-biased MAE can exploit cross-channel muscle synergy to reconstruct masked waveforms and learn a transferable able-bodied sEMG prior.
-
-\subsection{Experiment 2: Healthy-to-Amputee Transfer on DB3}
-The second experiment evaluates whether the able-bodied generative prior can be transferred to amputee residual-limb sEMG. For each DB3 subject, direct transfer, pretrained-finetuned, and amputee-only settings are compared through subject adaptation and downstream raw-versus-augmented sEMG analysis. DB3 completion is driven by rule anomaly masks rather than artificial target hiding, so the experiment does not use DB3 residual-limb sEMG as complete healthy reconstruction ground truth.
-
-This experiment addresses two questions: whether DB2 pretraining provides an effective initialization for amputee sEMG completion, and whether a small amount of DB3 subject-specific adaptation can further improve residual-limb signal completion.
 
 \subsection{Experiment 3: Continuous Joint Angle Estimation with Raw and Augmented sEMG}
 The third experiment evaluates the practical contribution of generative sEMG augmentation to continuous joint angle estimation. For each DB3 subject, the same data split and the same TCN regressor are used to train and test models under Raw, Enhanced, and Raw+Enhanced input modes.

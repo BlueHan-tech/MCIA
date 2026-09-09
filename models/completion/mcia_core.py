@@ -110,6 +110,33 @@ class Adapter(nn.Module):
         return x + h
 
 
+class EnvelopeBranch(nn.Module):
+    """零初始化包络旁路：为每个 token 附加输入窗口的包络信息。
+
+    包络提取为固定运算（|x| + 滑动均值），无可学习参数；
+    投影卷积零初始化，加载旧检查点时等价于恒等映射，不改变预测结果。
+    """
+
+    def __init__(self, embed_dim: int, patch_size: int, envelope_kernel_size: int = 25):
+        super().__init__()
+        self.patch_size = patch_size
+        self.envelope_kernel_size = max(3, int(envelope_kernel_size) | 1)
+        self.proj = nn.Conv1d(1, embed_dim, kernel_size=patch_size, stride=patch_size)
+        nn.init.zeros_(self.proj.weight)
+        nn.init.zeros_(self.proj.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """x：(B, T, C) 原始（已按观测掩码置零的）输入 -> (B, C, N, D)。"""
+        B, T, C = x.shape
+        k = min(self.envelope_kernel_size, T if T % 2 == 1 else max(1, T - 1))
+        h = x.abs().permute(0, 2, 1).reshape(B * C, 1, T)
+        if k > 1:
+            h = F.avg_pool1d(h, kernel_size=k, stride=1, padding=k // 2)
+        h = self.proj(h)                              # (B*C, D, N)
+        N = h.shape[-1]
+        return h.permute(0, 2, 1).reshape(B, C, N, -1)
+
+
 class SynergyBottleneck(nn.Module):
     """波形恢复前的低维肌肉协同调制。
 
@@ -230,6 +257,8 @@ class MCIA(nn.Module):
         n_synergies: int = 6,
         synergy_gate_scale: float = 0.5,
         synergy_dropout: float = 0.1,
+        use_envelope_branch: bool = False,
+        envelope_kernel_size: int = 25,
         # 仅为旧调用点保留；本架构不使用。
         num_heads: Optional[int] = None,
         spatial_depth: Optional[int] = None,
@@ -285,6 +314,10 @@ class MCIA(nn.Module):
             gate_scale=self.synergy_gate_scale,
             dropout=self.synergy_dropout,
         ) if self.use_synergy_bottleneck else None
+        self.envelope_branch = (
+            EnvelopeBranch(D, patch_size, envelope_kernel_size=envelope_kernel_size)
+            if use_envelope_branch else None
+        )
         self.pred_head = nn.Sequential(
             nn.Linear(D, patch_size),
             nn.Softplus(beta=10),
@@ -318,6 +351,10 @@ class MCIA(nn.Module):
         if self.synergy_bottleneck is not None:
             nn.init.zeros_(self.synergy_bottleneck.to_gate.weight)
             nn.init.zeros_(self.synergy_bottleneck.to_gate.bias)
+        if self.envelope_branch is not None:
+            # apply(_init_fn) 会用 kaiming 覆盖卷积，这里恢复零初始化恒等性质。
+            nn.init.zeros_(self.envelope_branch.proj.weight)
+            nn.init.zeros_(self.envelope_branch.proj.bias)
 
     def _derive_time_mask(self, raw_time_mask_btc: torch.Tensor) -> torch.Tensor:
         return derive_patch_time_mask(raw_time_mask_btc, self.patch_size)
@@ -360,6 +397,9 @@ class MCIA(nn.Module):
         tokens = tokens + self.temp_pos + self.chan_pos
         if domain_id is not None:
             tokens = tokens + self.domain_embed(domain_id)[:, None, None, :]
+        # drop_condition 分支保持真正无条件，不注入观测包络。
+        if self.envelope_branch is not None and not drop_condition:
+            tokens = tokens + self.envelope_branch(x)
 
         tokens = self.local_bypass(tokens)
         for block in self.blocks:
@@ -393,10 +433,6 @@ class MCIA_Wrapper:
     def __init__(self, model: MCIA):
         self.model = model
         self.timesteps = 1
-
-    def q_sample(self, x_start: torch.Tensor, t: torch.Tensor,
-                 noise: Optional[torch.Tensor] = None) -> torch.Tensor:
-        return x_start
 
     def p_sample(
         self,

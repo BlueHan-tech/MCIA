@@ -73,6 +73,10 @@ exp1_mcia:
   # Low-dimensional muscle-synergy modulation before waveform recovery.
   # This adds a tiny identity-initialized bottleneck, not a new output target.
   use_synergy_bottleneck: false
+  # Candidate model upgrade (zero-init at load; enable only after leak-free dev validation)
+  use_envelope_branch: false
+  # Candidate loss upgrade: soft [0,1] range penalty during training (0 = off)
+  range_penalty_weight: 0.0
   n_synergies: 6
   synergy_gate_scale: 0.5
   synergy_dropout: 0.1
@@ -85,19 +89,7 @@ exp1_mcia:
   patch_rms_size: 8              # align RMS energy with P=8 patch tokens
 
   num_domains: 2            # 0=healthy DB2, 1=amputee DB3
-  spatial_depth: 6          # legacy alias of n_layers
-  num_heads: 6              # legacy alias of n_heads
-  mlp_ratio: 2.0
-  pool_depth: 1
-  num_summary_tokens: 8
 
-  pool_mode: "strided_conv"
-  upsample_mode: "conv_transpose"
-  fuse_mode: "none"          # 鏈€浼橈細涓嶇敤 DynamicFiLMFuse
-  temporal_depth: 0          # 鏈€浼橈細涓嶇敤 TimeRefiner / CrossChannelAttention
-  use_mask_swap: true
-  use_group_bias: true
-  use_spatial_mixer: false   # 鏈€浼橈細涓嶇敤 SpatialMixer
   group_indices:
     flexor: [0, 1, 2, 3, 8]
     extensor: [4, 5, 6, 7, 9]
@@ -140,15 +132,6 @@ exp1_mcia:
       block_len_patches: [2, 4]
 
   use_structural_loss: true
-  alpha_peak: 1.5             # 闄嶄綆 peak锛屽噺杞?CH-MISS 閫氶亾姊害鏀惧ぇ
-  alpha_env: 0.2              # RMS 鍖呯粶
-  alpha_grad: 0.3             # 涓?corr 瑙ｈ€︼細杩囬珮浼氬帇骞抽娴嬨€佷笌 Pearson 鍐茬獊
-  alpha_known: 0.05           # 宸茬煡鍖烘湁鍥炲～淇濊瘉锛屾棤闇€寮虹洃鐫?
-  alpha_boundary: 0.2         # 杈圭晫骞虫粦
-  alpha_synergy: 0.05
-  alpha_corr: 1.2             # 鎻愰珮 Corr 鏉冮噸锛屽鎶楀潎鍊奸櫡闃?
-  alpha_detrend: 0.8          # 鍘诲潎鍊?MSE锛屼笌 corr 鍗忓悓
-  beta_smooth: 0.0
 
   use_personal_condition: false
   cfg_dropout_prob: 0.0
@@ -190,26 +173,6 @@ exp2_transfer:
 
   # Subject adaptation uses training repetitions only; validation/test remain held out.
   random_seed: 42
-
-  # Compare these transfer modes for DB3 subject adaptation checkpoints.
-  transfer_modes: ["amputee_only", "direct_transfer", "pretrained_finetuned"]
-
-  # DB3 fine-tuning / amputee-only training.
-  finetune_epochs: 25
-  amputee_only_epochs: 25
-  patience: 5
-  learning_rate: 0.0001
-  finetune_lr_spatial: 0.00001
-  finetune_lr_refiner: 0.0002
-
-  # Checkpoint selection is fixed before DB3 test evaluation.  The validation
-  # mask generator is re-seeded every epoch so the selected epochs are
-  # comparable within a subject and reproducible across reruns.
-  training_scenario: "s3"
-  selection_scenario: "s3"
-  selection_metric: "loss_for_early_stop"
-  training_mask_seed_offset: 100000
-  selection_mask_seed_offset: 200000
 
   # DB3 anomaly masks. Main path uses scenario-aligned rule masks.
   weak_threshold: 0.02

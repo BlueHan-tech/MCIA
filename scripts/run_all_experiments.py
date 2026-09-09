@@ -3,8 +3,8 @@ MCIA 全流程实验的一键入口。
 
 直接运行本文件将按顺序执行：
 Exp1：DB2 健康先验补全
-Exp2：DB3 截肢者迁移与规则掩码增强
-Exp3：连续关节角度预测
+Exp3：DB3 连续关节角度预测（A/B；C 等待无真值适配方案）
+Exp4：DB3 48 类手势识别（A/B；C 等待无真值适配方案）
 
 Default run_all stops after Exp3 angle prediction + metrics; paper figures/tables are pending redesign.
 """
@@ -35,26 +35,14 @@ STEPS = [
         "log_name": "01_exp1_db2_completion.log",
     },
     {
-        "id": "exp2_transfer",
-        "name": "Exp2: DB3 amputee transfer",
-        "command": ["scripts/02_finetune_mcia_db3_amputee.py"],
-        "log_name": "02_exp2_db3_transfer.log",
-    },
-    {
-        "id": "exp2_augment",
-        "name": "Exp2: DB3 rule-mask augmentation",
-        "command": ["scripts/03_generate_augmented_db3_semg.py"],
-        "log_name": "03_exp2_db3_rule_augmentation.log",
-    },
-    {
         "id": "exp3_angle",
         "name": "Exp3: E1+E2 fixed-Key10 continuous angle prediction",
-        "command": ["scripts/04_eval_db3_angle_raw_vs_augmented.py", "--groups", "A,B,C"],
+        "command": ["scripts/04_eval_db3_angle_raw_vs_augmented.py", "--groups", "A,B"],
         "log_name": "04_exp3_angle_prediction.log",
     },
     {
         "id": "exp4_gesture",
-        "name": "Exp4: E1+E2+E3 48-class gesture recognition",
+        "name": "Exp4: E1+E2+E3 48-class gesture recognition (A/B)",
         "command": ["scripts/05_eval_db3_gesture_raw_vs_augmented.py"],
         "log_name": "05_exp4_gesture_recognition.log",
     },
@@ -92,29 +80,16 @@ def _print_expected_outputs(run_dir: Path) -> None:
     print("    figures/", flush=True)
     print("    cache/", flush=True)
     print("", flush=True)
-    print("Exp2 transfer output:", flush=True)
-    print(f"  {run_dir / '02_db3_transfer_completion'}", flush=True)
-    print("    checkpoints/", flush=True)
-    print("    metrics/", flush=True)
-    print("    figures/", flush=True)
-    print("", flush=True)
-    print("Exp2 rule-mask augmentation output:", flush=True)
-    print(f"  {run_dir / '02_db3_transfer_completion' / 'augmented_emg'}", flush=True)
-    print("    db3_Sxx.npz", flush=True)
-    print(f"  {run_dir / '02_db3_transfer_completion' / 'figures' / '12ch_completion'}", flush=True)
-    print("    Sxx/{direct_transfer,pretrained_finetuned}/{sampled,high_missing}/", flush=True)
-    print("", flush=True)
     print("Exp3 fixed-Key10 continuous angle prediction output:", flush=True)
     print(f"  {run_dir / '03_angle_prediction'}", flush=True)
     print("    metrics/db3_angle_raw_vs_augmented_results.json", flush=True)
     print("    predictions/Sxx_angle_predictions.npz", flush=True)
     print("", flush=True)
-    print("Exp4 48-class gesture-recognition output:", flush=True)
+    print("Exp4 A/B gesture-recognition output:", flush=True)
     print(f"  {run_dir / '04_gesture_recognition'}", flush=True)
-    print("    metrics/db3_gesture_raw_vs_augmented_results.json", flush=True)
-    print("    predictions/, figures/, checkpoints/", flush=True)
+    print("    metrics/, predictions/, figures/, checkpoints/", flush=True)
     print("", flush=True)
-    print("The pipeline produces both main downstream result sets; legacy paper figures/tables remain manual.", flush=True)
+    print("The pipeline produces A/B downstream results; DB3 subject-adapted C remains retired pending redesign.", flush=True)
     print("  scripts/generate_paper_figures.py is retained as a legacy/pending-redesign manual entry.", flush=True)
 
 

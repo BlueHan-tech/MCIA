@@ -232,7 +232,7 @@ def _downstream_association(subject_id: int, prediction_dir: Path, config: dict,
     results = {"available": True, "prediction_path": str(path), "legacy_target_dim": int(target.shape[-1]),
                "test_windows": int(len(target)), "mapping_status": "time-indices-validated"}
     window_errors = {}
-    for group in ("A", "B", "C"):
+    for group in ("A", "B"):
         key = f"pred_{group}"
         if key not in artifact.files:
             continue
@@ -245,7 +245,7 @@ def _downstream_association(subject_id: int, prediction_dir: Path, config: dict,
             "clear_failure_ratio": _correlation(clear_coverage, error),
         }
     if "A" in window_errors:
-        for group in ("B", "C"):
+        for group in ("B",):
             if group in window_errors:
                 improvement = window_errors["A"] - window_errors[group]
                 results[f"group_{group}_minus_A_association"] = {
@@ -338,7 +338,7 @@ def main() -> None:
         for subject in report["subjects"]
     ])
     group_deltas = {}
-    for group in ("B", "C"):
+    for group in ("B",):
         values = _finite([
             subject["downstream_association"].get(f"group_{group}_rmse", np.nan)
             - subject["downstream_association"].get("group_A_rmse", np.nan)
