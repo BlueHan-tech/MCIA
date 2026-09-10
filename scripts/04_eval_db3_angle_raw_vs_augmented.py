@@ -1282,7 +1282,7 @@ def main():
             group_target = None
 
             quality_masks = window_meta["quality_mask"]
-            subj_result["quality_mask_rule"] = "hard_zero_train_1_3_4_or_gronlund_2005_mqp_p_gt_0_20"
+            subj_result["quality_mask_rule"] = "hard_zero_train_1_3_4_or_wcbqd_v0.1_plateau_lowenergy_lowfreqburst"
             subj_result["quality_mask_ratio"] = float((quality_masks < 0.5).mean())
 
             if "A" in run_groups:

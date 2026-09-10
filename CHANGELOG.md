@@ -1,10 +1,66 @@
+## 2026-09-10
+
+- 新增跨工具协作机制：`docs/COLLABORATION.md` 作为方案地图、决策记录与待核验冲突的共享索引；`AGENTS.md` 与 `.cursor/rules/collaboration.mdc` 要求任务开始/结束检查工作区 diff、先讨论实质科研方案、记录采用/拒绝/冻结决定，并禁止静默覆盖其他工具改动或自行裁决协议冲突。未修改实验实现或启动训练。
+
+- C 组开发冻结（协议 §5）：`scripts/06_adapt_amputee_donor_prior.py` 在供体池（S02/S04/S08/S11，E1+E2 训练 reps 适配、rep 6 仅 checkpoint 选择）上比较三候选（full lr1e-5 / full lr3e-6 / adapter lr1e-4，8 epochs，domain_id=1），按预声明规则（S05/S06 验证 global RMSE 均值最低）冻结 **C = adapter lr1e-4**，写入 `config.yaml` 的 `c_adaptation` 节；checkpoint 存于 `08_amputee_donor_prior/`，筛选报告存于 `06_diagnostics/c_dev_screen_20260910/`。如实记录：三个 C 候选均未超过 B 参照（B 均值 0.16933 vs 最优 C 0.16952，差距噪声量级；S06 上 C 微胜、S05 上 B 微胜），开发集并出现 B 优于 raw 的信号（S05 0.17161 vs raw 0.17353）；C−A 判决留待确认集。开发阶段被试测试 reps 未触碰。
+
+- SGMD-AAE 预训练提速（演练 profiling 后用户确认）：`_train_sgmd` 改为标准 GAN 单前向 detach 模式（生成器由每步两次前向改为一次，`fake = output.detach()` 喂判别器，数学等价、省约 25% 前向开销）；`sgmd_aae_batch_size` 32→64（8GB 显存安全，约 1.5–2× 吞吐；属任务适配预训练的自有配置，非论文原始超参，随 §7.5 报告披露）。中断并清理了慢速版演练的半途产物，全预算演练以新配置重启。
+
+- 实现协议 §7.5 健康基准入口 `scripts/eval_healthy_completion_benchmark.py`（复用 `run_task_matched_literature_baselines` 的 `_train_sgmd`/`_scenario_generator`/`_masked_metrics`，按"验证脚本单一来源"规则 import 而非复制）：DB2 S33–S40、E1、逐被试 ScenarioMix 掩码（预声明种子 20260910+被试号）、**全方法统一交付**（clip→patch 边界淡化→观测回填；MCIA 走 `complete_with_mask`，SGMD 取生成器原始输出、CP 取重建后统一包装），指标含 masked NRMSE/PSNR/RME/Pearson，§7.5 判据自动判定；产物写入 `07_healthy_completion_benchmark/` 并 mark_step。开发级 smoke 通过（单被试 S33、64 窗、SGMD 1 epoch、256 预训练窗，报告标注 dev_run）——smoke 数字无结论意义，但 CP-WOPT 在该缩减设置下 NRMSE 低于 MCIA（0.133 vs 0.181），提示正式基准存在不通过风险。正式一次性冻结报告尚未运行。
+
+- 移除 DB3 任务内比较脚本的误导性补全指标：原 `completion_nrmse/psnr/rme` 拿补全结果与掩码位置**被录制的坏信号**比较（死通道录到精确零值，全零预测会得满分），衡量的是"与坏信号的距离"而非补全质量；从 `run_task_matched_literature_baselines.py` 的被试报告、汇总 CSV/JSON 与图像中删除该列，`_masked_metrics` 保留并加 docstring 限定其仅用于有人工遮挡真值的基准（由 §7.5 入口复用）；协议 §8 同步改述（DB3 表只报下游终点，补全质量仅在有真值基准上报告），§10 更新 §7.5 入口实现状态。下游角度指标不受影响。
+
+- 按用户决定新增协议 §7.5"补全方法学前提判据（必须结果）"：MCIA 在健康 DB2 受控掩码补全（S33–S40、冻结 ScenarioMix 掩码、masked NRMSE 主判据）上必须同时优于 SGMD-AAE 与 CP-WOPT（均值更低且逐被试 ≥4/8 更优）；锁定公平性规则（SGMD 同源同掩码预训练、CP-WOPT 标注 split-transductive、所有方法统一 clamp→边界淡化→回填交付）、防选择纪律（迭代仅限 S29–S32，S33–S40 每次评估披露）与失败语义（未满足禁称"更优补全方法"，下游结论独立但须并置呈现）；§9.6 要求该判据的一次性冻结报告先于确认 run，§10 标注该对比入口尚未实现。未修改实验代码。
+
+- 按用户四项决定修订协议并解除 §4 阻塞项：(1) **T1 差一错误修复**——`_plateau_stats` 此前返回相等对数（L 个相同采样点产生 L−1 对），`PLATEAU_HARD=100` 实际要求 101 个采样点；改为 `ends-starts+1` 采样点语义后，healthy/healthy_ext/db3 三阶段验收全部刷新归档（旧结果存 `*_pre_t1samplefix/`），所有判定与数字不变（0.15%/0.09%/4.82%，硬零一致性 100%），S05/S06 生产 smoke 一致（0.32%/16.67%）；协议 §4 阻塞句改为已解除并记录修复。(2) **连续点入选规则锁入协议 §7.1**——同一 exercise 内时间连续、每点至少双窗口覆盖、跨 exercise 不拼接，实现锚定 `utils/kinematic_output_postprocess`。(3) **手势识别升为并列主终点**——协议 §1 改为双主任务（重要性相等、独立判据、整体结论需两者同时满足），新增 §7.2：确认集 S03/S07/S09 测试窗口 macro-F1 的配对 `C-A`（均值>0 且 ≥2/3 被试>0），次要为 trial-majority/accuracy/balanced/混淆矩阵；§3 补手势数据定义（E1+E2+E3、48 类、标签纯度过滤），§6 补 GestureTCN 训练公平性（验证 macro-F1 选择），§2 注明被试三分同适于两任务，§9.5 与 §10 同步。(4) **移除文献基线脚本 `Observed_only` 臂**（用户确认不需要），零残留。回归：编译、输出范围测试通过。
+
+- 重写 `docs/EXPERIMENT_PROTOCOL.md` 为当前主实验的可执行协议：明确 A/B/C，其中 C 改为健康 DB2 先验经 S02/S04/S08/S11 无标签截肢者清洁供体适配的 `amputee-donor prior`，而非已退役的目标受试者真值微调；将已查看历史 test 的 S05/S06 限定为开发集，并预留 S03/S07/S09 为冻结后确认集；锁定 200 Hz 表示、WC-BQD 掩码、相同 TCN、连续 global Key10 RMSE 主终点、`C-A` 成功判据，以及任务适配 SGMD-AAE/CP-WOPT 的补充比较边界。未修改实验代码或启动训练。
+
+- 新增"验证脚本单一来源"规则并完成全仓审计（用户指示）：AGENTS.md 最小代码修改规则新增第 7 条——验证/诊断/评估脚本引用主链路逻辑（模型构建、损失、掩码生成与质量检测、补全交付规则、主实验指标与聚合口径）必须 import 主模块、不得复制实现，并建议内置漂移绊线（断言主模块判定与本地重算一致）；单元测试按规格独立重算期望值、已冻结留档的历史脚本豁免。审计结果：**合规**——文献基线脚本 MCIA 交付走 `EXP3.make_enhanced_pool`（SGMD/CP 为外部方法自身交付，无主链路逻辑可引用）、`scripts/04`/`05` 为主链路本体且共享 `patch_boundary_crossfade`、消融脚本为 import+子类扩展、`diagnose_wcbqd_detector.py` 本日已单一来源化；**修复一处违规**——`dev/ablate_structural_loss_terms.py` 的 evaluate 内联交付（写于边界淡化采纳前、已过时）改用 `complete_with_mask`（clamp→边界淡化→回填），合成 smoke 通过；**豁免并留档**——7–8 月 DB3 oracle/alpha/gain/sparse/error-gated/task-aware 等一次性诊断与 09-08 的 softplus/range_penalty/output_activation 筛选脚本内联 copy-back 均为已结论冻结记录，不重跑。
+
+- 消除 WC-BQD 验证脚本与主模块的双实现漂移风险（用户指出）：`test/diagnose_wcbqd_detector.py` 删除本地 T1/T2/T3 与常量副本，全部改从 `utils/db3_quality_mask` 导入（`second_features`/`_fit_baselines`/`_wcbqd_flags`/常量）；诊断包装保留 z 与独立分测试明细（成分分析口径与既有验证记录一致），并内置漂移绊线——每秒断言主模块并集判定与本地重算逐位一致，主模块改动导致的语义漂移会在复验收时立即报错。新增诊断专用 `second_rms`（主模块特征不含 rms，激活相关性分析所需）。等价验证：S05/S06 诊断路径重建的 200 Hz 掩码与生产 `db3_quality_mask` 输出**逐位一致**（missing 0.32%/16.67%）。注意：本文件 sha256 因此变更，既往 `06_diagnostics/wcbqd_validation_20260909/` 各 results.json 中记录的运行时 sha 属于重构前版本，其数字仍有效（逐位等价已证），复验收使用新版本脚本。
+
+- 固定项目执行环境为 Conda `py311`：在 `AGENTS.md` 明确要求所有依赖 NumPy、PyTorch 或 Matplotlib 的 Agent 命令、smoke、训练和评估均使用 `conda run -n py311 python ...`，并记录 PyCharm 对应解释器路径；自动打开的 `base` 环境不再作为项目依赖检查依据。
+
+- 清理旧掩码规则残留（用户核查要求）：`scripts/05` 的 quality_mask 元数据描述与 `scripts/04` 的掩码规则标签更新为 WC-BQD v0.1；删除 `data/dataset_db3_emg.py` 中零消费方的 `DB3EMGDataset` 死类（weak/abnormal 阈值辅助退化掩码，删除前经 rg 确认无引用）及 `torch.utils.data.Dataset` 导入；删除 config 中四个死键（`weak_threshold`/`abnormal_threshold`/`channel_anomaly_ratio`/`augmentation_mask_mode`，主链路与手动脚本均不读取）。保留并如实标注：`utils/db3_quality_mask.py` docstring 中的历史说明、CHANGELOG/设计文档/冻结诊断中的 MQP 实验记录；更老的 `utils/anomaly_detect.py` 与 `utils/rule_anomaly_detector.py` 不在主链路但仍被手动掩码构建脚本、legacy paper_figures 与冻结测试引用，连同 `generate_figures_from_run` 对 `transfer_augmentation_mask_mode` 的默认值兜底读取一并保留，待这些工具退役时一并处理。回归：消费方编译、输出范围测试通过；主链路复扫零 MQP/死键残留。
+
+- 新增任务内可比的文献基线入口 `scripts/run_task_matched_literature_baselines.py`，并将全流程可选 literature 阶段切换至该入口：MCIA、SGMD-AAE、CP-WOPT 均在 DB3 上接收相同的 200 Hz 包络、同一质量掩码，随后以固定划分、重新初始化且同配置/同种子的 Key10 KinematicTCN 评估；输出 masked NRMSE/PSNR/RME 与角度指标。SGMD-AAE 以与 MCIA 相同的健康 DB2 训练被试及 ScenarioMix 预训练；CP-WOPT 按训练/验证/测试分区的无标签观测 EMG 拟合，结果明确标记为 split-transductive，避免将其误述为归纳式推理。原 2 kHz、240 点论文格式复现脚本仍为独立入口，不再作为主链路对比结果。
+
+- 采纳 WC-BQD 替换主链路 MQP 层（用户确认，统一替换）：重写 `utils/db3_quality_mask.py` 第二层为通道内基线检测器（T1 幅值条件化平台/死区、T2 低能量稳健 z、T3 低频主导爆发，常量预声明，基线仅用训练 repetitions 1/3/4 活动秒，训练秒不足 4 时降级为仅 T1 并落盘记录），硬零层保留；函数签名与返回契约不变，`dataset_kinematics`/`dataset_db3_emg`/`scripts/05` 零改动；元数据更新为 `mask_rule=hard_zero_train_1_3_4 OR wcbqd_v0.1_...` 并落盘常量与逐秒警报计数。删除 `mqp_probability`/`_mqp_flags`（无主链路消费方）；当日两个冻结校准脚本因此不可重跑，`reproduce_gronlund_db3_quality.py` 自包含不受影响。真实数据 smoke 与验收数字一致（S05 missing 0.32%、S06 16.67% 且 Ch9/Ch10 100% 硬零，t1/t2t3 计数落盘）。新增设计文档 [docs/WCBQD_DESIGN.md](docs/WCBQD_DESIGN.md)（动机、设计、逐组件文献支撑、验证证据、采纳影响）并加入 AGENTS.md 路由表。影响：DB3 补全缺失比例 18.6%→约 4.6%（S05 窗口级 13.1%→0.3%），新旧 run 的 B 组产物不可直接混比；下游全量证据待正式 run 复核（C4 为 S05 单被试开发预算）。
+
+- 更正 WC-BQD DB3 验收的 C3c 判定并撤回一个错误结论：初版汇总把 9 个被试的硬零通道取跨被试并集后套用到全部被试，被无硬零被试的同位置活通道稀释成 26.9%，由此得出"硬零层丢弃 73% 活数据"的结论是**错误的，予以撤回**。逐被试正确计算：硬零通道仅出现在 S06/S07（Ch9/Ch10），二者各自 held-out 秒的 T1 平坦一致性均为 100%——通道为永久性断流，硬零层判断正确，C3c 判定改为**通过**（≥95%）。C3b 通道维度的 26.9% 集中同样完全来自这两个被试的死通道，属正确检出而非检测混淆；硬零层无需重新设计。`stage_db3` 已改为逐被试一致性并保留并集口径仅作标注（"不用于判定"）；含 bug 的旧结果归档为 `db3_v0_unionmask_bug/`，修正结果覆盖 `db3/`。
+
+- 完成 WC-BQD（通道内基线质量检测器，bottom-up 组合：T1 幅值条件化平台/死区、T2 低能量稳健 z、T3 低频主导爆发）全部四条预声明验收（`test/diagnose_wcbqd_detector.py`，纯诊断不动主链路，产物在 run 的 `06_diagnostics/wcbqd_validation_20260909/`）。健康人零校准（DB2 S01–S10 及功效扩展 S11–S20，held-out reps）：池化 flag 率 0.15%/0.09%（C1 通过），通道 Pearson 0.481（S01–S10 形式失败、91 事件功效不足且低于显著性临界）/-0.030（S11–S20 通过），合并 149 事件 Pearson 0.375 统计上不显著，对比 MQP 的 0.952（约 1.8 万事件）；Ch11/12 零 flag（C2b 通过）。DB3 9 被试 held-out：池化 4.82%（C3a 通过，MQP 参照 18.58%）、动作维度 4.0–8.8% 平坦（通过）；通道维度 Ch9/Ch10 26.9%（C3b 形式失败，来源为 S06/S07 永久死通道的正确检出，见上方更正条目）；C3c 经逐被试修正后通过。下游 S05 开发 A/B（C4 通过）：raw 0.17353 / 现行 MQP 掩码 0.18073 / WC-BQD 掩码 0.17406——B 相对 A 的 RMSE 差距从 +4.15% 缩到 +0.30%，证明 MQP 过度掩码是此前 B 劣势的主因之一。检测器经历一次健康零分布驱动的正当校准迭代：v0 的 T1 被 DB2 Ch3/Ch10 量化重复样本触发（dupfrac 规则），v0.1 改为"≥10 样本平台且处于该秒 P99.5 幅值极端（削顶）或 ≥50ms 平坦（死区）"，v0 失败结果归档为 `healthy_v0_t1quantization/`。是否采纳（替换 `db3_quality_mask` 的 MQP 层）留待用户决策。
+
+- 记录 run_20260909_194559_1 失败：19:45:59 启动，19:48:22 死于 Exp1 训练开始阶段（数据准备与 init checkpoint 已完成，无 epoch 产出、无 traceback 落盘）；同一时间窗内一个 GPU 诊断任务（WC-BQD C4，19:46:35 停止）并行在跑，最可能原因为双进程 GPU 争用（OOM/CUDA 错误），未确证。全链路启动前必须确认无其他 GPU 任务；该 run 的 40 被试数据缓存完好，重启可复用。
+
 ## 2026-09-09
+
+- 完成 MQP flag 的通道×动作双侧分解（DB3 侧 `test/decompose_mqp_flags_db3.py` 读现有 NPZ；健康人侧 `test/decompose_mqp_flags_healthy.py` 重载 DB2 S01–S10 并补存 action/RMS 元数据；均 0.20 阈值、train 侧数据、只读或仅写 06_diagnostics）。两侧一致结论：**动作维度平坦**（DB3 top5 动作 19–20%≈总体，健康人动作区间 12.9–16.2%），**通道维度强结构化**（DB3 Ch9–12 高达 23–47%，含上臂电极 Ch11/12；健康人 Ch1/7/8/10 达 26–41%，通道间差 20–47 倍），**健康人通道 flag 率与该通道中位 RMS 的 Pearson=0.952，被 flag 通道-秒的中位 RMS 是未 flag 的 5.0 倍**，58–75% 被 flag 秒有 ≥2 通道共现。机制判定：MQP 的跨通道离群框架把"通道间正常幅值差异"（高激活主力通道与近静默上臂通道两个方向）当作异常，健康本底为生理性；检测器混淆激活水平与信号质量。修复方向明确为通道内时序基线检测（每通道与自身历史比较），调全局阈值无法解决该混淆。DB3 侧 RMS 对照因 NPZ 无幅值元数据未计算；产物在 run 的 `06_diagnostics/mqp_flag_decomposition_{db3,healthy}_20260909/`。
 
 - 新增独立文献补全基线实现：`models/baselines/sgmd_aae.py` 按 Zou et al. (2023) 实现 SGMD-AAE 的 240×12 self-mask PartialConv U-Net、多尺度时域/FFT 频域双判别器、self-guided/style/center-alignment/adversarial 损失和论文报告的损失权重/优化器学习率；`scripts/run_literature_completion_baseline.py` 可在显式 `MCIA_RUN_DIR` 下运行 SGMD-AAE 或 CP-WOPT。它们不接入默认主流程，SGMD-AAE 仅接受论文一致的原始 2kHz 120ms 240×12 输入。
 
 - 将本地论文材料目录 `apply/` 加入 `.gitignore`，避免 SGMD-AAE 参考 PDF 被纳入版本控制；该目录仅用于复现时的本地文献核验。
 
 - 新增独立文献基线模块 `models/baselines/cp_wopt.py`：按 Akmal et al. (2019) 的加权 CP/PARAFAC 目标和 Hestenes-Stiefel 非线性共轭梯度实现 CP-WOPT，并提供 RME 及“仅替换缺失值、保留观测值”的交付接口；新增合成低秩张量公式级 smoke，不接入 MCIA 或主实验链路。
+
+- 将 SGMD-AAE 与 CP-WOPT 文献基线接入 `run_all_experiments.py` 的可选末尾阶段：使用 `--with-literature-baselines` 或 `literature_baselines.enabled` 显式启用，顺序运行并将日志、输入与指标隔离在当前 run 的 `06_diagnostics/literature_baselines`。
+
+- 新增 DB2 原始 2 kHz、49.5--50.5 Hz 三阶 Butterworth 带阻、240x12 非重叠窗口准备入口，避免将 Exp1 的 200 Hz、256 点包络缓存误作 SGMD-AAE 论文输入。
+
+- 按用户确认将 `literature_baselines.enabled` 设为 `true`；此后默认 `run_all_experiments.py` 在主链路成功后顺序执行 SGMD-AAE 与 CP-WOPT 独立复现实验。
+
+## 2026-09-10
+
+- 新增 `scripts/run_literature_baselines.py`：PyCharm 可直接运行的独立文献基线管线，每次创建新 run，顺序准备论文格式 DB2 输入并运行 SGMD-AAE、CP-WOPT，不启动或改动 MCIA 主实验链路。
+
+- 修正 SGMD-AAE 文献基线输入尺度：在 2 kHz 带阻滤波及 240x12 分窗后，逐样本 min-max 归一化至 `[0,1]`，并记录 `input_preprocessing.json`；此前直接使用原始伏特量级会使论文定义的 NRMSE 与网络训练尺度失配。
+
+- 修正 SGMD-AAE 生成器的论文结构实现：按 Table 1 固定编码层尺寸 `240x12→24x12→8x4→4x2→2x1→1x1`，对偶数核解码层采用非对称 SAME padding；并按 Eq. (2) 将 PartialConv bias 放在 self-mask 缩放之后，避免 bias 被错误放大。
+
+- 修正 SGMD-AAE 训练/推理输入维度：移除将 `(batch,time,channel)` 错置为 `(batch,channel,time)` 的 permute，确保模型实际接收论文 Table 1 所定义的 `240x12` 时序×通道布局；该错误由严格尺寸修复后的编码层检查暴露。
+
+- 清除同一 SGMD-AAE 训练入口中掩码张量的残留维度转置，使训练目标与 self-mask 均为 `(batch,1,240,12)`。
 
 - 完成 MQP 阈值的健康人经验零校准（`test/calibrate_mqp_threshold_healthy_db2.py`，DB2 S01–S10 训练侧被试、E1+E2 活动段、与 DB3 掩码完全相同的 `mqp_probability` 代码路径、判定规则预先写死为“池化健康 flag 率 ≤5% 的最小网格阈值”、测试被试未触碰）：**预定规则无解**——健康人池化 P95=0.7031，网格内（0.05–0.40）最低 flag 率为 0.40 处的 8.99%；当前 0.20 阈值下健康人 flag 率 14.48%（逐被试 12.14–22.38%），DB3 截肢者为 18.58%，差距仅约 4 个百分点且随阈值升高收窄。结论：“健康≈干净”前提在该检测器上不成立，MQP p 在健康数据上有高本底（疑对正常生理/通道间异质性敏感），5% 目标不可达；若强行取健康 P95=0.70，DB3 掩码将降至 4.76%。不据此改阈值；是否调整留待用户决策，建议后续先做健康 p 本底的逐通道/逐动作分解诊断。产物在 run 的 `06_diagnostics/mqp_healthy_null_calibration_20260909/`。
 
@@ -246,4 +302,3 @@ Added simulated Exp2/Exp3/Exp4 figure-style artifacts under outputs/simulated_ex
 ## 2026-08-28
 
 新增独立 PartialConv 损失权重消融：在固定 DB2 数据划分、窗口和 ScenarioMix 掩码下完成四组 20 epoch 验证；提高 NCC 能增加相关性但显著恶化 NRMSE，当前 NCC=0.5、Charbonnier=1.0 仍为最佳平衡，未修改主实验链路。
-

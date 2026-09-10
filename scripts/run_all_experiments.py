@@ -6,12 +6,15 @@ Exp1：DB2 健康先验补全
 Exp3：DB3 连续关节角度预测（A/B；C 等待无真值适配方案）
 Exp4：DB3 48 类手势识别（A/B；C 等待无真值适配方案）
 
-Default run_all stops after Exp3 angle prediction + metrics; paper figures/tables are pending redesign.
+The optional literature-baseline stage runs only after the default pipeline has
+completed successfully.  It is a task-matched 200-Hz comparison, distinct from
+the standalone paper-format reproduction entry point.
 """
 
 from __future__ import annotations
 
 import os
+import argparse
 import subprocess
 import sys
 import time
@@ -47,6 +50,18 @@ STEPS = [
         "log_name": "05_exp4_gesture_recognition.log",
     },
 ]
+
+
+def _literature_baseline_steps(cfg: dict) -> list[dict]:
+    settings = cfg["literature_baselines"]
+    return [
+        {
+            "id": "task_matched_literature_baselines",
+            "name": "Task-matched 200-Hz MCIA / SGMD-AAE / CP-WOPT + Key10 TCN",
+            "command": ["scripts/run_task_matched_literature_baselines.py"],
+            "log_name": "06_task_matched_literature_baselines.log",
+        },
+    ]
 
 
 def _now() -> str:
@@ -89,6 +104,10 @@ def _print_expected_outputs(run_dir: Path) -> None:
     print(f"  {run_dir / '04_gesture_recognition'}", flush=True)
     print("    metrics/, predictions/, figures/, checkpoints/", flush=True)
     print("", flush=True)
+    print("Optional task-matched literature-baseline output:", flush=True)
+    print(f"  {run_dir / '06_diagnostics' / 'task_matched_literature_baselines'}", flush=True)
+    print("    same 200-Hz envelope/mask, MCIA/SGMD-AAE/CP-WOPT completion and Key10 TCN results", flush=True)
+    print("", flush=True)
     print("The pipeline produces A/B downstream results; DB3 subject-adapted C remains retired pending redesign.", flush=True)
     print("  scripts/generate_paper_figures.py is retained as a legacy/pending-redesign manual entry.", flush=True)
 
@@ -96,7 +115,9 @@ def _print_expected_outputs(run_dir: Path) -> None:
 def _run_step(index: int, total: int, step: dict, run_dir: Path) -> None:
     name = step["name"]
     step_id = step["id"]
-    full_cmd = _python_command(step["command"])
+    literature_input = run_dir / "06_diagnostics" / "literature_baselines" / "db2_sgmd_paper_format_windows.npy"
+    command = [str(literature_input) if item == "{literature_input}" else item for item in step["command"]]
+    full_cmd = _python_command(command)
     command_text = _format_command(full_cmd)
     log_path = run_dir / "05_logs" / step["log_name"]
 
@@ -193,7 +214,13 @@ def _run_step(index: int, total: int, step: dict, run_dir: Path) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Run the MCIA pipeline.")
+    parser.add_argument("--with-literature-baselines", action="store_true",
+                        help="After Exp4, run independent SGMD-AAE and CP-WOPT reproductions.")
+    args = parser.parse_args()
     cfg = yaml.safe_load((PROJECT_ROOT / "config.yaml").read_text(encoding="utf-8"))
+    include_literature = args.with_literature_baselines or bool(cfg["literature_baselines"].get("enabled", False))
+    steps = [*STEPS, *(_literature_baseline_steps(cfg) if include_literature else [])]
     run_dir = get_run_dir(PROJECT_ROOT, cfg, create=True)
     os.environ["MCIA_RUN_DIR"] = str(run_dir)
 
@@ -202,15 +229,15 @@ def main() -> None:
     print(f"Run dir: {run_dir}", flush=True)
     print(f"Python: {sys.executable}", flush=True)
     print("Run this file directly to execute the fixed full pipeline.", flush=True)
-    print("No command-line options are required.", flush=True)
+    print(f"Literature baselines: {'enabled' if include_literature else 'disabled'}", flush=True)
     _print_expected_outputs(run_dir)
 
     total_start_time = _now()
     total_start = time.time()
     mark_step(run_dir, "pipeline", "running", {"start_time": total_start_time})
     try:
-        for index, step in enumerate(STEPS, start=1):
-            _run_step(index, len(STEPS), step, run_dir)
+        for index, step in enumerate(steps, start=1):
+            _run_step(index, len(steps), step, run_dir)
     except Exception:
         total_elapsed = time.time() - total_start
         mark_step(
@@ -236,7 +263,7 @@ def main() -> None:
             "elapsed_seconds": total_elapsed,
         },
     )
-    _print_header("Default pipeline finished")
+    _print_header("MCIA pipeline finished")
     print(f"Run dir: {run_dir}", flush=True)
     print(f"Total elapsed: {total_elapsed:.1f} sec", flush=True)
 

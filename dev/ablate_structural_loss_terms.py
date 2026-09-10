@@ -34,7 +34,7 @@ from data.dataset_db2_emg import EMGCompletionDataset, prepare_data_db2
 from data.ninapro_loader import NinaProDataLoader
 from models.completion.mask_generators import ScenarioMixMaskGenerator
 from utils.loss_functions import EMGImputationLoss
-from utils.paper_pipeline import build_mcia, flatten_pipeline_config, load_yaml_config, set_seed
+from utils.paper_pipeline import build_mcia, complete_with_mask, flatten_pipeline_config, load_yaml_config, set_seed
 
 # 当前主损失的可剪枝项及基准权重（与 build_structural_loss 默认一致）
 BASE_WEIGHTS = {
@@ -157,9 +157,9 @@ def evaluate(model, loader: DataLoader, config: Dict, seed: int, device: torch.d
     for batch in loader:
         target = batch["data"].to(device)
         raw_mask = mask_generator.generate_mask(target, scenario=SCENARIO)
-        masked = target * raw_mask
-        pred = model(masked, mask=raw_mask.max(dim=1).values, x_masked=masked, raw_time_mask=raw_mask)
-        completed = pred.clamp(0.0, 1.0) * (1.0 - raw_mask) + target * raw_mask
+        # 交付走主模块入口（clamp→边界淡化→回填），与主链路单一来源。
+        completed = complete_with_mask(model, target, raw_mask,
+                                       patch_size=int(config["patch_size"]))
         missing = raw_mask < 0.5
         diff = completed - target
         squared += float(diff[missing].square().sum().item())

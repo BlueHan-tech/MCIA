@@ -28,27 +28,44 @@ class SGMDAAEConfig:
 
 class SelfMaskPartialConv2d(nn.Module):
     """Eq. 2--3 self-mask partial convolution with LayerNorm-equivalent GN."""
-    def __init__(self, in_channels: int, out_channels: int, kernel_size, stride=1):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size, stride=1,
+                 padding: tuple[int, int] | str = (0, 0)):
         super().__init__()
         if isinstance(kernel_size, int): kernel_size = (kernel_size, kernel_size)
         if isinstance(stride, int): stride = (stride, stride)
-        padding = tuple(k // 2 for k in kernel_size)  # paper does not report padding
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding)
+        if padding != "same" and (not isinstance(padding, tuple) or len(padding) != 2):
+            raise ValueError("padding must be a (height, width) tuple or 'same'.")
+        self.kernel_size = kernel_size
+        self.padding = padding
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=0)
         self.norm = nn.GroupNorm(1, out_channels)
         self.activation = nn.LeakyReLU(0.2, inplace=True)
         self.register_buffer("ones", torch.ones(1, in_channels, *kernel_size), persistent=False)
+
+    def _pad(self, values: torch.Tensor) -> torch.Tensor:
+        if self.padding == "same":
+            pad_h = self.kernel_size[0] - 1
+            pad_w = self.kernel_size[1] - 1
+            return F.pad(values, (pad_w // 2, pad_w - pad_w // 2,
+                                  pad_h // 2, pad_h - pad_h // 2))
+        pad_h, pad_w = self.padding
+        return F.pad(values, (pad_w, pad_w, pad_h, pad_h)) if (pad_h or pad_w) else values
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if mask.shape[1] == 1 and x.shape[1] != 1:
             mask = mask.expand(-1, x.shape[1], -1, -1)
         if mask.shape != x.shape:
             raise ValueError(f"Self-mask shape {mask.shape} must match feature shape {x.shape}")
-        masked = x * mask
-        output = self.conv(masked)
-        counts = F.conv2d(mask, self.ones.to(dtype=x.dtype), stride=self.conv.stride, padding=self.conv.padding)
+        masked = self._pad(x * mask)
+        padded_mask = self._pad(mask)
+        output = F.conv2d(masked, self.conv.weight, bias=None, stride=self.conv.stride)
+        counts = F.conv2d(padded_mask, self.ones.to(dtype=x.dtype), stride=self.conv.stride)
         total = float(self.ones[0].numel())
         valid = counts > 0
-        output = torch.where(valid, output * (total / counts.clamp_min(1.0)), torch.zeros_like(output))
+        output = output * (total / counts.clamp_min(1.0))
+        if self.conv.bias is not None:
+            output = output + self.conv.bias.view(1, -1, 1, 1)
+        output = torch.where(valid, output, torch.zeros_like(output))
         output = self.activation(self.norm(output))
         next_mask = valid.any(dim=1, keepdim=True).to(dtype=x.dtype).expand_as(output)
         return output, next_mask
@@ -59,18 +76,21 @@ class SGMDAAEGenerator(nn.Module):
     def __init__(self):
         super().__init__()
         self.enc = nn.ModuleList([
-            SelfMaskPartialConv2d(1, 128, (10, 1), (10, 1)),
-            SelfMaskPartialConv2d(128, 256, (3, 3), (3, 3)),
-            SelfMaskPartialConv2d(256, 512, (3, 3), (2, 2)),
-            SelfMaskPartialConv2d(512, 512, (3, 3), (2, 2)),
-            SelfMaskPartialConv2d(512, 512, (2, 1), (2, 1)),
+            # Table 1: 240x12 -> 24x12 -> 8x4 -> 4x2 -> 2x1 -> 1x1.
+            SelfMaskPartialConv2d(1, 128, (10, 1), (10, 1), padding=(0, 0)),
+            SelfMaskPartialConv2d(128, 256, (3, 3), (3, 3), padding=(0, 0)),
+            SelfMaskPartialConv2d(256, 512, (3, 3), (2, 2), padding=(1, 1)),
+            SelfMaskPartialConv2d(512, 512, (3, 3), (2, 2), padding=(1, 1)),
+            SelfMaskPartialConv2d(512, 512, (2, 1), (2, 1), padding=(0, 0)),
         ])
         self.dec = nn.ModuleList([
-            SelfMaskPartialConv2d(1024, 512, (2, 1)),
-            SelfMaskPartialConv2d(1024, 512, (2, 2)),
-            SelfMaskPartialConv2d(1024, 256, (2, 2)),
-            SelfMaskPartialConv2d(512, 128, (3, 3)),
-            SelfMaskPartialConv2d(256, 1, (10, 1)),
+            # Pconvs retain the upsampled spatial size.  Even kernels require
+            # asymmetric SAME padding in PyTorch.
+            SelfMaskPartialConv2d(1024, 512, (2, 1), padding="same"),
+            SelfMaskPartialConv2d(1024, 512, (2, 2), padding="same"),
+            SelfMaskPartialConv2d(1024, 256, (2, 2), padding="same"),
+            SelfMaskPartialConv2d(512, 128, (3, 3), padding="same"),
+            SelfMaskPartialConv2d(256, 1, (10, 1), padding="same"),
         ])
         # Table 1 reports 1024/1024/1024/512/256 channels at the five
         # concatenations, while its encoder rows report 256 and 128 channels

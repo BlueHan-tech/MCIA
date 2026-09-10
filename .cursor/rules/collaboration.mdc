@@ -1,0 +1,12 @@
+---
+description: Keep MCIA decisions and concurrent tool changes auditable.
+alwaysApply: true
+---
+
+# Cross-tool collaboration
+
+- Before changing files, inspect `git status --short`, relevant `git diff`, and `docs/COLLABORATION.md`.
+- Treat existing modifications as owned by another tool or the user unless the task explicitly includes them.
+- Discuss and obtain confirmation before changing experimental design, data splits, masks, models, metrics, baselines, training rules, or material compute budget.
+- Record material adopted/rejected/frozen decisions and conflicts in `docs/COLLABORATION.md`; use `CHANGELOG.md` only for completed file facts.
+- If code, protocol, changelog, or concurrent modifications disagree, record a verification item and stop short of choosing a version silently.

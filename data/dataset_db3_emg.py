@@ -2,72 +2,19 @@
 (实验二) DB3 截肢者肌电数据集
 
 功能：
-- DB3EMGDataset: 加载 DB3 截肢者 sEMG，生成辅助退化掩码
-- prepare_data_db3: DB3 预处理流水线（与 DB2 一致的滤波→包络→归一化流程）
+- prepare_data_db3: DB3 预处理流水线（与 DB2 一致的滤波→包络→归一化流程），
+  质量掩码来自 utils.db3_quality_mask 的两层规则（硬零 + WC-BQD）。
 
-辅助退化掩码规则：
-- emg <= weak_threshold (微弱值)  -> 标记为需要补全
-- emg >= abnormal_threshold (异常值) -> 标记为需要补全
-- 被标记的位点置零，mask 设为 0（需补全）
+历史注记：旧 DB3EMGDataset（weak/abnormal 阈值辅助退化掩码）已随规则掩码
+主链路化移除（2026-09-10 清理，删除前经 rg 确认零消费方）。
 """
 
 import numpy as np
 import torch
 from pathlib import Path
-from torch.utils.data import Dataset
 from utils.db3_quality_mask import db3_quality_mask
 
 from data.dataset_db2_emg import moving_average
-
-
-class DB3EMGDataset(Dataset):
-    """
-    DB3 截肢者 EMG 数据集
-
-    与 DB2 EMGCompletionDataset 不同：
-    - mask 可作为辅助退化区域，不作为论文主实验的核心标注
-    - 每个样本返回: data(原始), data_masked(异常区域置零), mask(1=正常, 0=需补全)
-    """
-
-    def __init__(self, segments, weak_threshold=0.02, abnormal_threshold=0.95):
-        """
-        Args:
-            segments: (N, T, C) 预处理后的 EMG 片段
-            weak_threshold: 低于此值作为弱信号辅助退化候选
-            abnormal_threshold: 高于此值作为高幅值辅助退化候选
-        """
-        self.segments = torch.FloatTensor(segments)
-        self.weak_threshold = weak_threshold
-        self.abnormal_threshold = abnormal_threshold
-
-    def __len__(self):
-        return len(self.segments)
-
-    def __getitem__(self, idx):
-        emg = self.segments[idx]  # (T, C)
-
-        # 辅助退化检测：逐通道判定
-        # 掩码：1=保留，0=候选增强区域
-        mask = torch.ones_like(emg)
-
-        # 规则1: 信号极弱 -> 弱信号候选
-        mask[emg <= self.weak_threshold] = 0.0
-        # 规则2: 信号异常高 -> 高幅值候选
-        mask[emg >= self.abnormal_threshold] = 0.0
-
-        # 通道级掩码（如果一个通道超过50%的时间点被标记，则作为候选退化通道）
-        channel_anomaly_ratio = (mask == 0).float().mean(dim=0)  # (C,)
-        channel_mask = (channel_anomaly_ratio < 0.5).float()     # (C,) 1=正常通道
-        mask_1d = channel_mask  # (C,) 用于模型的通道级掩码
-
-        emg_masked = emg * mask
-
-        return {
-            'data': emg,
-            'data_masked': emg_masked,
-            'mask': mask,           # (T, C) 时间点级掩码
-            'mask_1d': mask_1d,     # (C,)   通道级掩码
-        }
 
 
 def prepare_data_db3(data_loader, subject_ids, config, exercises=None, return_metadata=False):

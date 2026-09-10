@@ -304,7 +304,7 @@ def main() -> None:
         "split": {"train_repetitions": [1, 3, 4], "validation_repetitions": [6], "test_repetitions": [2, 5]},
         "leakage_control": {
             "window_policy": "action/repetition pure windows; no cross-exercise windows",
-            "quality_mask": "hard zero channels fitted on training repetitions 1/3/4; fixed MQP p>0.20 evaluated per input second",
+            "quality_mask": "hard zero channels fitted on training repetitions 1/3/4; WC-BQD v0.1 within-channel baseline tests evaluated per input second",
             "normalization": "per subject and exercise, train-free EMG preprocessing; no labels enter enhancement",
             "model_selection": "validation macro-F1 only",
         },
