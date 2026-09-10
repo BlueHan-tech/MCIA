@@ -1,6 +1,6 @@
 """Confirmation replication of the 2026-09-09 inference-option screen.
 
-Same methodology as test/diagnose_completion_inference_options.py (frozen Exp1
+Same methodology as research/diagnose_completion_inference_options.py (frozen Exp1
 checkpoint, fixed S1/S2/S3 mask seeds 7000+i, 512 windows per subject, paired
 conditions, no training, validation subjects only, no test data), with two
 differences by design:

@@ -3,8 +3,8 @@ MCIA 全流程实验的一键入口。
 
 直接运行本文件将按顺序执行：
 Exp1：DB2 健康先验补全
-Exp3：DB3 连续关节角度预测（A/B；C 等待无真值适配方案）
-Exp4：DB3 48 类手势识别（A/B；C 等待无真值适配方案）
+Exp3：DB3 连续关节角度预测（A/B）
+Exp4：DB3 48 类手势识别（A/B）
 
 The optional literature-baseline stage runs only after the default pipeline has
 completed successfully.  It is a task-matched 200-Hz comparison, distinct from
@@ -108,8 +108,8 @@ def _print_expected_outputs(run_dir: Path) -> None:
     print(f"  {run_dir / '06_diagnostics' / 'task_matched_literature_baselines'}", flush=True)
     print("    same 200-Hz envelope/mask, MCIA/SGMD-AAE/CP-WOPT completion and Key10 TCN results", flush=True)
     print("", flush=True)
-    print("The pipeline produces A/B downstream results; DB3 subject-adapted C remains retired pending redesign.", flush=True)
-    print("  scripts/generate_paper_figures.py is retained as a legacy/pending-redesign manual entry.", flush=True)
+    print("The default pipeline produces A/B downstream results only.", flush=True)
+    print("C has a separate donor-adaptation development entry and is not implicitly run here.", flush=True)
 
 
 def _run_step(index: int, total: int, step: dict, run_dir: Path) -> None:

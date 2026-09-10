@@ -37,7 +37,7 @@ from data.dataset_db2_emg import EMGCompletionDataset, prepare_data_db2
 from data.ninapro_loader import NinaProDataLoader
 from models.completion.mask_generators import ScenarioMixMaskGenerator
 from models.completion.mcia_core import MCIA
-_LEGACY_PATH = PROJECT_ROOT / "test" / "diagnose_mcia_unet_small_ablation.py"
+_LEGACY_PATH = PROJECT_ROOT / "research" / "diagnose_mcia_unet_small_ablation.py"
 _LEGACY_SPEC = importlib.util.spec_from_file_location("mcia_decoder_ablation", _LEGACY_PATH)
 if _LEGACY_SPEC is None or _LEGACY_SPEC.loader is None:
     raise ImportError(_LEGACY_PATH)

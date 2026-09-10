@@ -5,7 +5,7 @@ baseline（当前权重）与 drop_one 候选（单项权重置 0）。
 Charbonnier 为主保真项，始终保留。仅训练/验证被试参与；不读取测试被试。
 
 用法（先设置 MCIA_RUN_DIR 指向现有 run 目录）：
-  python dev/ablate_structural_loss_terms.py --epochs 6
+  python research/ablate_structural_loss_terms.py --epochs 6
 """
 
 from __future__ import annotations

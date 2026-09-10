@@ -22,7 +22,7 @@ quantization duplicates on DB2 Ch3/Ch10):
   plateau: run>=10 at the second's P99.5 amplitude extremes (clipping) OR
   run>=100 samples (50 ms flatline); duplicate-fraction rule removed.
 
-Usage: python test/diagnose_wcbqd_detector.py --stage healthy|db3|downstream
+Usage: python research/diagnose_wcbqd_detector.py --stage healthy|db3|downstream
 """
 
 from __future__ import annotations

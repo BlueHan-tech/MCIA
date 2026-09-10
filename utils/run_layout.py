@@ -122,7 +122,6 @@ def apply_run_paths(flat: Dict, cfg: Dict, project_root: Path, allow_new: bool =
     flat["regressor_augmented_data_dir"] = str(exp2 / "augmented_emg")
     flat["regressor_results_path"] = str(exp3 / "metrics" / "db3_angle_raw_vs_augmented_results.json")
     flat["gesture_results_path"] = str(run_dir / "04_gesture_recognition" / "metrics" / "db3_gesture_raw_vs_augmented_results.json")
-    flat["paper_figures_dir"] = str(run_dir / "04_paper_figures")
     return flat
 
 

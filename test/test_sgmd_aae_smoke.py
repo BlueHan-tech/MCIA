@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from models.baselines.sgmd_aae import SGMDAAEConfig, SGMDAAEGenerator, SGMDMultiViewDiscriminator, SGMDAAEObjective, sgmd_complete
 
-def main():
+def test_sgmd_aae_smoke():
     torch.manual_seed(42)
     target = torch.rand(2, 1, 240, 12)
     mask = torch.ones_like(target); mask[:, :, 30:90, 2:5] = 0
@@ -34,4 +34,4 @@ def main():
     delivered = sgmd_complete(generator, target, mask)
     if not torch.equal(delivered[mask.bool()], target[mask.bool()]): raise AssertionError("observations changed")
     print("ok", {key: round(float(value), 5) for key, value in pieces.items()})
-if __name__ == "__main__": main()
+if __name__ == "__main__": test_sgmd_aae_smoke()

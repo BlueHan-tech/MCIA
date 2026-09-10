@@ -14,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from models.baselines.cp_wopt import CPWOPTConfig, complete_cp_wopt, relative_mean_error
 
 
-def main() -> None:
+def test_cp_wopt_baseline() -> None:
     rng = np.random.default_rng(7)
     factors = (rng.normal(size=(8, 1)), rng.normal(size=(6, 1)), rng.normal(size=(5, 1)))
     target = np.einsum("ir,jr,kr->ijk", *factors, optimize=True)
@@ -34,4 +34,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    test_cp_wopt_baseline()

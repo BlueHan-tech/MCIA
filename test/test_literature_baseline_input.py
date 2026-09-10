@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 from scripts.prepare_literature_baseline_db2 import _normalize_each_sample
 
 
-def main() -> None:
+def test_literature_baseline_input() -> None:
     values = np.array([
         [[-2.0, 0.0], [1.0, 4.0]],
         [[5.0, 5.0], [5.0, 5.0]],
@@ -26,4 +26,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    test_literature_baseline_input()

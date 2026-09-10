@@ -10,7 +10,6 @@ from __future__ import annotations
 import csv
 import json
 import os
-import subprocess
 import sys
 import argparse
 from pathlib import Path
@@ -36,7 +35,6 @@ def _load_script_module(name: str, rel_path: str):
     return module
 
 
-db3_figs = _load_script_module("db3_figs", "scripts/03_generate_augmented_db3_semg.py")
 exp3_figs = _load_script_module("exp3_figs", "scripts/04_eval_db3_angle_raw_vs_augmented.py")
 
 
@@ -459,53 +457,6 @@ def regenerate_db2_fig2_candidates(run_dir: Path, config: dict) -> int:
     return len(saved)
 
 
-def regenerate_db3_completion_figures(run_dir: Path, config: dict, raw_cfg: dict) -> int:
-    aug_dir = run_dir / "02_db3_transfer_completion" / "augmented_emg"
-    npz_files = sorted(aug_dir.glob("db3_S*.npz"))
-    if not npz_files:
-        raise FileNotFoundError(
-            "Current run is missing DB3 augmented .npz files under "
-            f"{aug_dir}. Run scripts/03_generate_augmented_db3_semg.py first. "
-            "Fallback to external augmented directories is not allowed."
-        )
-    expected_mask_mode = str(raw_cfg.get("exp2_transfer", {}).get(
-        "augmentation_mask_mode",
-        config.get("transfer_augmentation_mask_mode", "rule"),
-    ))
-    count = 0
-    for npz_path in npz_files:
-        subject_id = int(npz_path.stem.split("S")[-1])
-        data = np.load(npz_path)
-        if "mask" not in data.files:
-            raise KeyError(f"Missing required 'mask' in DB3 augmented file: {npz_path}")
-        if "mask_mode" not in data.files:
-            raise KeyError(f"Missing required 'mask_mode' in DB3 augmented file: {npz_path}")
-        mask_mode = str(data["mask_mode"])
-        if mask_mode != expected_mask_mode:
-            raise ValueError(
-                f"DB3 mask_mode mismatch in {npz_path}: "
-                f"file has {mask_mode!r}, expected {expected_mask_mode!r}."
-            )
-        original = data["original"]
-        enhanced = data["enhanced"]
-        mask = data["mask"]
-        direct = data["direct_enhanced"] if "direct_enhanced" in data.files else enhanced
-        patch_mask_status = "yes" if "patch_mask" in data.files else "no"
-        dead_channels = (
-            [int(c + 1) for c in data["dead_channels"].tolist()]
-            if "dead_channels" in data.files else []
-        )
-        saved = db3_figs.save_subject_semg_panels(
-            aug_dir, subject_id, original, direct, enhanced, mask, config
-        )
-        count += len(saved)
-        print(
-            f"  DB3 S{subject_id:02d}: {len(saved)} figures | "
-            f"mask_mode={mask_mode} patch_mask={patch_mask_status} "
-            f"dead_channels_1based={dead_channels}"
-        )
-    return count
-
 def regenerate_exp3_abc_figures(run_dir: Path, config: dict) -> int:
     pred_dir = run_dir / "03_angle_prediction" / "predictions"
     out_dir = run_dir / "03_angle_prediction" / "figures" / "comparison"
@@ -573,45 +524,12 @@ def regenerate_exp3_abc_figures(run_dir: Path, config: dict) -> int:
     return count
 
 
-def _conda_env_args() -> list[str]:
-    env_value = os.environ.get("CONDA_DEFAULT_ENV", "apple")
-    env_path = Path(env_value)
-    if env_path.exists() or env_path.is_absolute() or "/" in env_value or ":" in env_value:
-        return ["-p", env_value]
-    return ["-n", env_value]
-
-
-def regenerate_paper_figures(run_dir: Path) -> None:
-    """Legacy/manual paper figure rebuild; default flow skips this pending redesign."""
-    conda_exe = Path(os.environ.get("CONDA_EXE", r"C:\Users\zouyuhan.pat\miniforge3\Scripts\conda.exe"))
-    env = os.environ.copy()
-    env["MCIA_RUN_DIR"] = str(run_dir)
-    env.setdefault("MPLBACKEND", "Agg")
-    env.setdefault("PYTHONIOENCODING", "utf-8")
-    cmd = [sys.executable, "scripts/generate_paper_figures.py", "--infer"]
-    if conda_exe.exists():
-        cmd = [str(conda_exe), "run", *_conda_env_args(), "python", "scripts/generate_paper_figures.py", "--infer"]
-    subprocess.run(cmd, cwd=PROJECT_ROOT, env=env, check=True)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=(
-            "Regenerate current DB2 Fig.1 quantitative metrics, DB2 per-channel error heatmap, DB2 Fig.2 candidates, DB3 completion, and anatomy A/B angle figures from an existing run. "
-            "Legacy paper figures are pending redesign and skipped by default."
-        )
+        description="Regenerate current DB2 quantitative figures and anatomy A/B angle figures from an existing run."
     )
-    parser.add_argument(
-        "--include-legacy-paper-figures",
-        action="store_true",
-        help=(
-            "Also run scripts/generate_paper_figures.py --infer to rebuild legacy/pending-redesign "
-            "04_paper_figures outputs."
-        ),
-    )
-    args = parser.parse_args()
+    parser.parse_args()
 
-    raw_cfg = yaml.safe_load((PROJECT_ROOT / "config.yaml").read_text(encoding="utf-8"))
     if os.environ.get("MCIA_RUN_DIR"):
         run_dir = Path(os.environ["MCIA_RUN_DIR"])
     else:
@@ -633,26 +551,13 @@ def main() -> None:
     fig1_png, fig1_csv = regenerate_db2_scenario_quant_figure(run_dir)
     heatmap_png, heatmap_csv = regenerate_db2_per_channel_error_heatmap(run_dir, config)
     db2_count = regenerate_db2_fig2_candidates(run_dir, config)
-    db3_count = regenerate_db3_completion_figures(run_dir, config, raw_cfg)
     exp3_count = regenerate_exp3_abc_figures(run_dir, config)
     print(f"DB2 Fig.1 quantitative figure: {fig1_png}")
     print(f"DB2 Fig.1 source CSV: {fig1_csv}")
     print(f"DB2 per-channel masked MAE heatmap: {heatmap_png}")
     print(f"DB2 per-channel masked MAE CSV: {heatmap_csv}")
     print(f"DB2 Fig.2 candidate figures: {db2_count}")
-    print(f"DB3 completion figures: {db3_count}")
     print(f"Exp3 anatomy A/B figures: {exp3_count}")
-
-    if args.include_legacy_paper_figures:
-        try:
-            regenerate_paper_figures(run_dir)
-        except Exception as exc:
-            print(f"Legacy paper figures skipped: {exc}")
-    else:
-        print(
-            "Legacy paper figures/tables are pending redesign and skipped by default. "
-            "Use --include-legacy-paper-figures to rebuild 04_paper_figures manually."
-        )
 
     print("Done.")
 

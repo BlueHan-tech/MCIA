@@ -31,7 +31,7 @@ from data.ninapro_loader import NinaProDataLoader
 from utils.loss_functions import EMGImputationLoss
 
 
-_HEAD_PATH = PROJECT_ROOT / "test" / "diagnose_mcia_output_heads_ablation.py"
+_HEAD_PATH = PROJECT_ROOT / "research" / "diagnose_mcia_output_heads_ablation.py"
 _HEAD_SPEC = importlib.util.spec_from_file_location("mcia_output_heads", _HEAD_PATH)
 if _HEAD_SPEC is None or _HEAD_SPEC.loader is None:
     raise ImportError(_HEAD_PATH)

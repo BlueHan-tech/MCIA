@@ -38,7 +38,7 @@
 
 ## Figures
 
-- Exp4 的导入函数名必须与 `utils/paper_figures.py` 一致；使用别名须说明原因。此处 Exp3/Exp4 沿用旧规则称谓，执行时核对实际脚本和依赖，不能仅凭阶段编号判断。
+- 图像重建脚本必须直接复用当前评估入口的绘图函数；此处 Exp3/Exp4 沿用旧规则称谓，执行时核对实际脚本和依赖，不能仅凭阶段编号判断。
 - 图像生成不能默认跳过；临时护栏修复后必须清理。
 
 ## 验证规则
@@ -66,6 +66,5 @@ Windows 代码或运行环境修改后，先按 [WINDOWS.md](WINDOWS.md) 激活 
 4. 对实际脚本做最小真实验证，例如：
 
    ```powershell
-   $env:MCIA_RUN_DIR="E:\paper\MCIA\outputs\run\<run_id>"
-   python scripts\generate_paper_figures.py --figures fig7,fig8,fig9,table3 --force
+   python test\test_completion_output_range.py
    ```

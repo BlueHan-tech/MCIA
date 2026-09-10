@@ -54,7 +54,7 @@ def main():
     report['required_mat_files'] = len(required)
     print(f'Validated {len(required)} configured MAT files and metadata', flush=True)
     modules = {}
-    for index, filename in enumerate(['01_train_mcia_db2_healthy_prior.py', '02_finetune_mcia_db3_amputee.py', '03_generate_augmented_db3_semg.py', '04_eval_db3_angle_raw_vs_augmented.py', '05_eval_db3_gesture_raw_vs_augmented.py', 'run_all_experiments.py']):
+    for index, filename in enumerate(['01_train_mcia_db2_healthy_prior.py', '04_eval_db3_angle_raw_vs_augmented.py', '05_eval_db3_gesture_raw_vs_augmented.py', '06_adapt_amputee_donor_prior.py', 'run_all_experiments.py']):
         spec = importlib.util.spec_from_file_location(f'mcia_setup_stage_{index}', ROOT / 'scripts' / filename)
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module

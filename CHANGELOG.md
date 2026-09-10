@@ -1,5 +1,31 @@
 ## 2026-09-10
 
+- 按用户规格新增并运行 `dev/ridge_residual_tcn_screen.py`（E-004 开发筛查，非主链路）：base 严格复用 E-003（同 8,000 窗子集/掩码种子/λ/L32 头，内置漂移断言逐位复现通过），冻结因果 TCN 残差头（36 通道输入、hidden=16、kernel=2、dilation=[1,2,4,8,16]、感受野 32、零初始化头、masked MSE、AdamW lr=1e-3、batch=64、30 epochs、seeds 20260911–15 独立训练，无超参搜索/早停/checkpoint 选择）。验证 A（零初始化交付=base）/B（未来帧不变）/C（编译）全部通过。结果：5 seed 被试等权 overall = 0.1490/0.1493/0.1485/0.1489/0.1483（均值 0.14879、SD 0.00039；base 0.149606），5/5 < 0.1496 且每 seed ≥3/4 被试优于 base（4/3/4/3/4）→ 预声明判定**成功**；效应量小（对 base +0.0008，相对 Ridge 0.1699 累计 −0.021）。首次运行因写盘前局部变量遮蔽 bug 崩溃无产物，仅重命名修复后重跑、数值与崩溃运行打印完全一致（确定性交叉验证）；3,860 s、峰值 4,112 MB、无 OOM。产物 `06_diagnostics/ridge_residual_tcn_screen_20260910/`（JSON + base 与 5 seed 预测 .pt）。不进入 S33–S40/下游/主链路，详见 `docs/COLLABORATION.md` E-004。
+
+- 对 `dev/ridge_residual_diagnostic.py` 做独立静态与短时审计：`py311` 编译通过；未来帧整体扰动不会改变此前时刻的全部因果特征；原始 JSON 复核 L32 在 S29–S32 的 Ridge 差值均为负。记录于协作证据 E-003；未重跑长诊断。
+
+- 按用户规格新增并运行开发诊断 `dev/ridge_residual_diagnostic.py`（非主链路；掩码/指标/淡化/配置 import 主模块，Ridge 臂 import `dev/ridge_attribution.py`，K_obs 分层 import `dev/attribution_ladder.py`）：严格因果线性残差头（输入当前+过去 L 帧的 ridge 预测/observed/mask，窗外零填充；仅训练池人工掩码位置逐通道闭式拟合，固定种子 8,000 窗子集、λ=1e-3），S29–S32 仅前向、同 v1/v2 冻结掩码与交付，L∈{0,8,16,32} 全报告。Ridge 臂精确复现 E-001；L=0 中性（±0.0004），L=8/16/32 被试等权 overall 为 0.1635/0.1567/0.1496（Ridge 0.1699），4/4 被试与两个 K_obs 分层均单调改善且未在 L=32 饱和 → 按预声明三分支判定"可讨论小型因果残差 TCN"；CP-WOPT 未重跑（其 0.150 仅为 S29 旧预览）。数学自检（Gram=lstsq、因果扰动）通过；1,730 s、无 OOM（外部轮询峰值约 4.1 GB）。产物 `06_diagnostics/ridge_residual_diagnostic_20260910/ridge_residual_diagnostic.json`，详见 `docs/COLLABORATION.md` E-003。
+
+- GLM 在用户授权下完成 `dev/attribution_ladder.py` 的真实 DB2 开发运行（S29–S32，207 s，无 OOM）：low-rank rank-8/rank-32/MCIA 被试等权 masked NRMSE 为 0.1904/0.1940/0.1773，既有全秩 Ridge 为 0.1700 且 4/4 优于其余归纳式方法。更新协作记录 E-001/E-002：淘汰训练池单窗低秩主路线，下一候选仅可检验 Ridge 的因果时序残差；CP-WOPT 未同次重跑，不作转导归因。
+
+- 修复开发归因阶梯 `dev/attribution_ladder.py` 的全量 full-SVD 内存/时间失控：改为全 DB2 训练窗、批处理 `svds` 截断 PCA（rank 8/32，固定种子），避免物化中心化大矩阵；中断后的新运行输出写入 `attribution_ladder_20260910_v2/`。仅完成合成数据 smoke 与编译，未启动真实长诊断。
+
+- 经用户确认，将后续补全候选的三层开发门写入 `docs/EXPERIMENT_PROTOCOL.md` §7.6，并在 `docs/COLLABORATION.md` D-006 记录：与岭回归的同口径重建门、clean→damaged→completed 的受控下游恢复率、以及 raw+dropout-augmentation 强对照 D；锁定 0.50 恢复率为工程目标而非文献阈值。未改模型、未实现新脚本、未启动实验。
+
+- 整理代码库边界：`scripts/` 收敛为 14 个当前可运行入口，已退役的 DB3 伪目标适配、旧图表与旧表格入口移至 `research/retired/`；`test/` 收敛为 6 个可直接执行的 smoke/contract test，51 个一次性审计、oracle、ablation 与历史报告移至 `research/`，当前 Ridge v1/v2 保留在 `dev/`。同步移除活图像重建脚本对退役 02/03/paper-figure 路径的调用，更新 setup check、协议、绘图规则与协作索引；`utils/paper_figures.py` 和无消费方的 `paper_figures_dir` 一并归档/移除。语法检查和 6 个直接 smoke 均通过；`py311` 未安装 pytest，未执行 pytest 收集。
+
+- 记录 DB2 开发集 S29–S32 的岭回归 v1 证据：同一时刻全局全秩归纳式 ridge 的被试等权 masked NRMSE 为 0.170，rank-8/逐窗变体退化至 0.226/0.207（逐窗 rank-8 0.264）；若 MCIA 同次同口径参照约为 0.185，则 ridge 暂时优于 MCIA，构成简单高秩线性映射可替代当前 MCIA 的反证，待 v2 输出复核。CP-WOPT 优势仍不能归因。详见 `docs/COLLABORATION.md` E-001。
+
+- 澄清下游缺失增广对照的解释边界：对单一目标被试恒定失效的 Ch9/Ch10，质量掩码没有窗口级动作信息，只标识输入不可用；mask-aware 机制不能被表述为永久通道失效的补救。该约束写入 `docs/COLLABORATION.md` D-005。
+
+- 记录用户确认的研究排序：端到端缺失感知解码暂不替换当前 A/B/C 研究对象；优先准备开发级 `A + 下游缺失增广` 强对照，检验原始输入的鲁棒训练能否追平/超过补全 B。设计、数据隔离与 B+Aug 辅助臂要求写入 `docs/COLLABORATION.md` D-005；本次未实现或运行实验。
+
+- 记录目标被试级自监督适配 B2 的待核验冲突：永久失效 Ch9/Ch10 没有目标真值，零值适配会塌缩为零、排除损失则无法学习个体化恢复；在用户限定适用范围或放弃前，不实现、不启动该候选。详见 `docs/COLLABORATION.md` V-002。
+
+- 记录用户拒绝 CP-WOPT 转导教师蒸馏 MCIA 路线：不新增教师缓存、蒸馏损失或训练入口；拒绝原因与未来若重启所需的防泄漏/公平比较条件写入 `docs/COLLABORATION.md`。
+
+- 按用户决定新增项目部署约束（协议 §1.1）：主方法必须支持在线实时推理，端到端窗口级延迟 < 2 秒（窗口 1.28 s + 计算 < 0.72 s，因果于窗口流）；一次性校准（自监督适配等）允许离线完成不计入在线延迟；依赖整场数据的转导式处理（逐被试张量拟合、全场低秩精修）不得进入 A/B/C 方法定义。当前实测 MCIA 前向约 37 ms/窗，满足约束。§7.5 补充部署约束适用性条款（CP-WOPT 标注为非可部署 baseline）。直接后果：B1（MCIA 输出后全场低秩精修）正式出局；B2（被试级自监督适配，校准阶段完成）与 A（包络旁路）保持为候选，待验证数据决定。
+
 - 新增跨工具协作机制：`docs/COLLABORATION.md` 作为方案地图、决策记录与待核验冲突的共享索引；`AGENTS.md` 与 `.cursor/rules/collaboration.mdc` 要求任务开始/结束检查工作区 diff、先讨论实质科研方案、记录采用/拒绝/冻结决定，并禁止静默覆盖其他工具改动或自行裁决协议冲突。未修改实验实现或启动训练。
 
 - C 组开发冻结（协议 §5）：`scripts/06_adapt_amputee_donor_prior.py` 在供体池（S02/S04/S08/S11，E1+E2 训练 reps 适配、rep 6 仅 checkpoint 选择）上比较三候选（full lr1e-5 / full lr3e-6 / adapter lr1e-4，8 epochs，domain_id=1），按预声明规则（S05/S06 验证 global RMSE 均值最低）冻结 **C = adapter lr1e-4**，写入 `config.yaml` 的 `c_adaptation` 节；checkpoint 存于 `08_amputee_donor_prior/`，筛选报告存于 `06_diagnostics/c_dev_screen_20260910/`。如实记录：三个 C 候选均未超过 B 参照（B 均值 0.16933 vs 最优 C 0.16952，差距噪声量级；S06 上 C 微胜、S05 上 B 微胜），开发集并出现 B 优于 raw 的信号（S05 0.17161 vs raw 0.17353）；C−A 判决留待确认集。开发阶段被试测试 reps 未触碰。
