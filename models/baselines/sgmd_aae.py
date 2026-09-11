@@ -1,4 +1,4 @@
-"""SGMD-AAE literature baseline (Zou, Cheng, and Han, 2023).
+"""SGMD-AAE 文献基线（Zou、Cheng 和 Han，2023）。
 
 Reported architecture and hyperparameters are implemented verbatim where the
 paper specifies them.  The paper does not specify convolution padding, final
@@ -27,7 +27,7 @@ class SGMDAAEConfig:
 
 
 class SelfMaskPartialConv2d(nn.Module):
-    """Eq. 2--3 self-mask partial convolution with LayerNorm-equivalent GN."""
+    """公式 2--3 的自掩码部分卷积，并使用等效于 LayerNorm 的 GN。"""
     def __init__(self, in_channels: int, out_channels: int, kernel_size, stride=1,
                  padding: tuple[int, int] | str = (0, 0)):
         super().__init__()
@@ -72,11 +72,11 @@ class SelfMaskPartialConv2d(nn.Module):
 
 
 class SGMDAAEGenerator(nn.Module):
-    """Table 1 U-Net generator for 240 x 12 x 1 sEMG inputs."""
+    """表 1 中用于 240 x 12 x 1 sEMG 输入的 U-Net 生成器。"""
     def __init__(self):
         super().__init__()
         self.enc = nn.ModuleList([
-            # Table 1: 240x12 -> 24x12 -> 8x4 -> 4x2 -> 2x1 -> 1x1.
+            # 表 1：240x12 -> 24x12 -> 8x4 -> 4x2 -> 2x1 -> 1x1。
             SelfMaskPartialConv2d(1, 128, (10, 1), (10, 1), padding=(0, 0)),
             SelfMaskPartialConv2d(128, 256, (3, 3), (3, 3), padding=(0, 0)),
             SelfMaskPartialConv2d(256, 512, (3, 3), (2, 2), padding=(1, 1)),
@@ -84,18 +84,17 @@ class SGMDAAEGenerator(nn.Module):
             SelfMaskPartialConv2d(512, 512, (2, 1), (2, 1), padding=(0, 0)),
         ])
         self.dec = nn.ModuleList([
-            # Pconvs retain the upsampled spatial size.  Even kernels require
-            # asymmetric SAME padding in PyTorch.
+            # Pconv 保持上采样后的空间尺寸；偶数卷积核在 PyTorch 中需要
+            # 非对称的 SAME 填充。
             SelfMaskPartialConv2d(1024, 512, (2, 1), padding="same"),
             SelfMaskPartialConv2d(1024, 512, (2, 2), padding="same"),
             SelfMaskPartialConv2d(1024, 256, (2, 2), padding="same"),
             SelfMaskPartialConv2d(512, 128, (3, 3), padding="same"),
             SelfMaskPartialConv2d(256, 1, (10, 1), padding="same"),
         ])
-        # Table 1 reports 1024/1024/1024/512/256 channels at the five
-        # concatenations, while its encoder rows report 256 and 128 channels
-        # at the two corresponding scales.  These 1x1 projections reconcile
-        # that published dimensional inconsistency without changing scale.
+        # 表 1 在五次拼接处列出 1024/1024/1024/512/256 通道，而编码器对应
+        # 两个尺度列出 256 和 128 通道。这些 1x1 投影在不改变尺度的前提下
+        # 调和论文公开的维度不一致。
         self.skip_projections = nn.ModuleList([
             nn.Identity(), nn.Identity(), nn.Conv2d(256, 512, 1),
             nn.Conv2d(128, 256, 1), nn.Identity(),
@@ -114,9 +113,8 @@ class SGMDAAEGenerator(nn.Module):
         for block in self.enc:
             x, mask = block(x, mask)
             encoded.append((x, mask))
-        # Figure 2 decodes e5 through e4/e3/e2/e1, then reuses e1 at
-        # full resolution for Concate-5.  The original one-channel input is
-        # not the final skip because Table 1 specifies 256 channels there.
+        # 图 2 经由 e4/e3/e2/e1 解码 e5，随后在全分辨率处复用 e1 用于
+        # Concate-5。原始单通道输入不是最终跳连，因为表 1 在此指定 256 通道。
         skip_indices = (-2, -3, -4, -5, 0)
         for index, block in enumerate(self.dec):
             skip_x, skip_mask = encoded[skip_indices[index]]
@@ -145,7 +143,7 @@ class _ConvBlock(nn.Module):
 
 
 class SGMDMultiViewDiscriminator(nn.Module):
-    """Figure 3 raw multi-scale and FFT-spectrogram discriminator."""
+    """图 3 的原始多尺度与 FFT 频谱图判别器。"""
     def __init__(self, dropout: float = 0.5):
         super().__init__()
         self.raw_branches = nn.ModuleList([
@@ -173,7 +171,7 @@ class SGMDMultiViewDiscriminator(nn.Module):
         spec_features = []
         for block in self.spec_tail:
             spec = block(spec); spec_features.append(spec)
-        # Eq. 5 selects conv-4, conv-5, conv-9 and conv-10.
+        # 公式 5 选择 conv-4、conv-5、conv-9 和 conv-10。
         return [raw_features[1], raw_features[2], spec_features[3], spec_features[4]]
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -188,7 +186,7 @@ def _gram(feature: torch.Tensor) -> torch.Tensor:
 
 
 class SGMDAAEObjective(nn.Module):
-    """Equation 4--12 generator objective and alternating discriminator BCE."""
+    """公式 4--12 的生成器目标与交替训练的判别器 BCE。"""
     def __init__(self, config: SGMDAAEConfig):
         super().__init__(); self.config = config
 
@@ -215,6 +213,6 @@ class SGMDAAEObjective(nn.Module):
 
 @torch.no_grad()
 def sgmd_complete(generator: SGMDAAEGenerator, values: torch.Tensor, observed_mask: torch.Tensor) -> torch.Tensor:
-    """Deliver a reconstruction while preserving the actual observed sEMG."""
+    """交付重建结果，同时保留真实观测到的 sEMG。"""
     pred = generator(values * observed_mask, observed_mask)
     return pred * (1.0 - observed_mask) + values * observed_mask

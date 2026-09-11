@@ -1,4 +1,4 @@
-"""Prediction-only postprocessing for windowed continuous kinematic output."""
+"""仅基于预测值的窗口化连续运动学输出后处理。"""
 
 from __future__ import annotations
 
@@ -30,11 +30,11 @@ def _contiguous_groups(time_indices: np.ndarray) -> list[np.ndarray]:
 
 
 def _overlap_weights(length: int, fusion: str) -> np.ndarray:
-    """Deterministic window weights; no target values are used."""
+    """确定性窗口权重；不使用任何目标值。"""
     if fusion == "uniform_overlap_add":
         return np.ones(length, dtype=np.float64)
     if fusion == "triangular_overlap_add":
-        # Keep nonzero edges so samples covered by one window remain defined.
+        # 保留非零边缘，使仅被一个窗口覆盖的采样点仍有定义。
         positions = np.linspace(-1.0, 1.0, length, dtype=np.float64)
         return 0.1 + 0.9 * (1.0 - np.abs(positions))
     raise ValueError(f"Unsupported fusion mode: {fusion}")
@@ -91,7 +91,7 @@ def _quality_for_sequence(pred: np.ndarray, target: np.ndarray) -> dict | None:
 
 def continuous_trajectory_quality(pred: np.ndarray, target: np.ndarray,
                                   time_indices: np.ndarray) -> dict:
-    """Quality over contiguous sections only, avoiding derivative jumps across gaps."""
+    """仅在连续区段上衡量质量，避免间隙处的导数跳变。"""
     pred = np.asarray(pred)
     target = np.asarray(target)
     times = np.asarray(time_indices, dtype=np.int64)
@@ -121,7 +121,7 @@ def continuous_trajectory_quality(pred: np.ndarray, target: np.ndarray,
 
 def window_overlap_prediction_consistency(pred: np.ndarray,
                                           window_starts: np.ndarray) -> dict:
-    """Measure agreement between independently predicted overlap regions.
+    """衡量独立预测的重叠区域之间的一致性。
 
     This diagnostic uses predictions and their physical timestamps only. It
     detects whether overlap-add is hiding disagreement between short windows
@@ -169,7 +169,7 @@ def postprocess_window_predictions(pred: np.ndarray, target: np.ndarray,
                                    filter_kind: str = "savgol",
                                    target_fs: int = 100,
                                    lowpass_hz: float = 8.0) -> dict:
-    """Fuse overlapping predictions, then smooth each contiguous predicted sequence.
+    """融合重叠预测，再平滑每条连续预测序列。
 
     Prediction formation uses only model outputs and window positions. Targets are
     averaged solely to return aligned data for metrics after postprocessing.

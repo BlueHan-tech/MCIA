@@ -1,1 +1,1 @@
-"""Literature-baseline implementations kept outside the MCIA model path."""
+"""置于 MCIA 模型路径之外的文献基线实现。"""

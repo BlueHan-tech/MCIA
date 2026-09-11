@@ -1,4 +1,4 @@
-"""Normalize DLL search paths for direct Windows conda-env Python runs."""
+"""为直接运行 Windows conda 环境 Python 规范化 DLL 搜索路径。"""
 
 from __future__ import annotations
 

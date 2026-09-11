@@ -1,4 +1,4 @@
-"""Paired EMG-to-Key10 kinematics data preparation."""
+"""配对 EMG 到 Key10 运动学数据的准备。"""
 from __future__ import annotations
 from pathlib import Path
 import numpy as np
@@ -33,7 +33,7 @@ def make_subject_split(n_items, train_ratio=0.6, val_ratio=0.2, seed=42):
 
 def make_rep_split(repetitions, train_reps=DEFAULT_TRAIN_REPS, val_reps=DEFAULT_VAL_REPS,
                    test_reps=DEFAULT_TEST_REPS, val_ratio=None, seed=None):
-    """Locked split: train 1/3/4, validation 6, test 2/5."""
+    """冻结划分：训练 1/3/4，验证 6，测试 2/5。"""
     del val_ratio, seed
     reps = np.asarray(repetitions, dtype=np.int32)
     train_reps = tuple(rep for rep in train_reps if rep not in val_reps and rep not in test_reps)
@@ -72,7 +72,7 @@ def _preprocess_emg(data_loader, emg, factor):
     return moving_average(np.abs(filtered), factor)[::factor].astype(np.float32)
 
 def _window_rows(labels, repetitions, window_size, stride):
-    """Keep rest/action transitions but never span two nonzero repetitions."""
+    """保留静息/动作转换，但窗口绝不跨越两个非零 repetition。"""
     rows = []
     for start in range(0, len(labels) - window_size + 1, stride):
         end = start + window_size
@@ -83,7 +83,7 @@ def _window_rows(labels, repetitions, window_size, stride):
 
 def prepare_kinematics_data(data_loader, subject_ids, config, exercises=(1,), db="db2",
                             return_metadata=False):
-    """Build exercise-separated windows with train-only EMG and glove scaling."""
+    """构建 exercise 分离的窗口，EMG 和 glove 缩放仅由训练集拟合。"""
     factor = int(config["orig_fs"] / config["target_fs"])
     window_size, stride = int(config["window_size"]), int(config["stride"])
     all_emg, all_angle, all_subjects, all_reps, all_exercises, all_starts, all_masks = [], [], [], [], [], [], []

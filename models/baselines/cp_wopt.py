@@ -1,4 +1,4 @@
-"""CP-WOPT tensor completion from Akmal et al. (IEEE Access, 2019).
+"""Akmal 等人（IEEE Access，2019）的 CP-WOPT 张量补全。
 
 The implementation minimizes the paper's observed-entry objective
 
@@ -19,7 +19,7 @@ import numpy as np
 
 @dataclass(frozen=True)
 class CPWOPTConfig:
-    """Published solver settings, with rank supplied by the development plan."""
+    """论文公开的求解器设置；秩由开发方案提供。"""
 
     rank: int
     max_iterations: int = 1000
@@ -41,7 +41,7 @@ class CPWOPTResult:
 
 
 def relative_mean_error(estimate: np.ndarray, target: np.ndarray) -> float:
-    """RME (Eq. 14): ||X - X_hat||_F / ||X||_F."""
+    """RME（公式 14）：||X - X_hat||_F / ||X||_F。"""
     estimate = np.asarray(estimate, dtype=np.float64)
     target = np.asarray(target, dtype=np.float64)
     if estimate.shape != target.shape:
@@ -113,7 +113,7 @@ def _random_factors(shape: tuple[int, int, int], rank: int, seed: int) -> tuple[
 
 
 def fit_cp_wopt(values: np.ndarray, observed_mask: np.ndarray, config: CPWOPTConfig) -> CPWOPTResult:
-    """Fit weighted CP factors using the paper's Hestenes--Stiefel NCG rule."""
+    """按论文的 Hestenes--Stiefel NCG 规则拟合加权 CP 因子。"""
     values, observed_mask = _validate_inputs(values, observed_mask, config.rank)
     vector = _pack(_random_factors(values.shape, config.rank, config.seed))
     objective, gradient = _objective_and_gradient(vector, values, observed_mask, config.rank)
@@ -172,7 +172,7 @@ def fit_cp_wopt(values: np.ndarray, observed_mask: np.ndarray, config: CPWOPTCon
 
 
 def complete_cp_wopt(values: np.ndarray, observed_mask: np.ndarray, config: CPWOPTConfig) -> CPWOPTResult:
-    """Fit CP-WOPT then copy observed input values back into the delivered tensor."""
+    """拟合 CP-WOPT 后，将观测输入值复制回最终交付张量。"""
     values, observed_mask = _validate_inputs(values, observed_mask, config.rank)
     result = fit_cp_wopt(values, observed_mask, config)
     result.reconstruction = result.reconstruction * (1.0 - observed_mask) + values * observed_mask

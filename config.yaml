@@ -9,7 +9,7 @@ paths:
   output: "outputs"
   checkpoints: "checkpoints"
   metadata_csv: "db2_metadata.csv"
-# paths:
+# Linux 路径示例：
 #   db2: "/home/zyh/Ninapro-DB2"
 #   db3: "/home/zyh/Ninapro-DB3"
 #   output: "/home/zyh/A-King/outputs"
@@ -24,16 +24,16 @@ signal:
   window_size: 256       # 鍒嗘绐楀彛闀垮害锛堥噰鏍风偣锛?
   stride: 128            # 婊戝姩姝ラ暱
 
-# --- Level 0: DB3 direct-regression baselines ---
+# --- Level 0：DB3 直接回归基线 ---
 level0_baseline:
-  # Only DB3 subjects with usable glove ground truth will be included.
+  # 仅纳入具有可用 glove 真值的 DB3 被试。
   db3_subjects: [1,2,3,4,5,6,7,8,9,10,11]
   train_ratio: 0.60
   val_ratio: 0.20
   test_ratio: 0.20
   random_seed: 42
 
-  # Clean vs degraded direct regression. No MAE, transfer, anatomy-aware mask, or structural loss.
+  # 完整与退化输入的直接回归；不使用 MAE、迁移、解剖感知掩码或结构损失。
   models: ["tcn", "bilstm"]   # optional: add "cnn_gru"
   channel_mask_ratio: 0.20
   temporal_patch_mask_ratio: 0.15
@@ -70,19 +70,19 @@ exp1_mcia:
   ffn_dim: 384
   model_dropout: 0.1
 
-  # Low-dimensional muscle-synergy modulation before waveform recovery.
-  # This adds a tiny identity-initialized bottleneck, not a new output target.
+  # 波形恢复前的低维肌肉协同调制。
+  # 该模块仅加入小型恒等初始化瓶颈，不增加新的输出目标。
   use_synergy_bottleneck: false
-  # Candidate model upgrade (zero-init at load; enable only after leak-free dev validation)
+  # 候选模型升级（加载时零初始化；仅在无泄漏开发验证后启用）。
   use_envelope_branch: false
-  # Candidate loss upgrade: soft [0,1] range penalty during training (0 = off)
+  # 候选损失升级：训练期间的软 [0,1] 范围惩罚（0 表示关闭）。
   range_penalty_weight: 0.0
   n_synergies: 6
   synergy_gate_scale: 0.5
   synergy_dropout: 0.1
 
-  # EMG activation-level supervision. These losses are computed from the
-  # predicted waveform only; they add no extra model head and use no kinematic labels.
+  # EMG 激活水平监督。这些损失仅由预测波形计算，
+  # 不增加模型输出头，也不使用运动学标签。
   envelope_loss_weight: 0.2
   patch_rms_loss_weight: 0.1
   envelope_kernel_size: 25       # 125 ms at 200 Hz, forced odd in code
@@ -171,10 +171,10 @@ exp2_transfer:
   validation_repetitions: [6]
   test_repetitions: [2,5]
 
-  # Subject adaptation uses training repetitions only; validation/test remain held out.
+  # 被试适配仅使用训练 repetition；验证/测试集始终留出。
   random_seed: 42
 
-  # DB3 completion figures: sampled + high-missing windows per subject.
+  # DB3 补全图：每名被试抽样窗口及高缺失窗口。
   generate_db3_completion_panels: true
   db3_viz_sampled_per_subject: 10
   db3_viz_high_missing_per_subject: 5
@@ -182,7 +182,7 @@ exp2_transfer:
 
 # --- 瀹為獙涓? 瑙掑害棰勬祴妯″瀷 ---
 exp3_regressor:
-  # Non-causal offline TCN (same padding, RF=253 pts@200Hz鈮?265ms).
+  # 非因果离线 TCN（等长填充，感受野为 253 点@200 Hz，约 1.265 s）。
   hidden_dim: 64
   n_layers: 6
   kernel_size: 3
@@ -202,7 +202,7 @@ exp3_regressor:
   finetune_epochs: 10
   finetune_patience: 5
 
-  # DB3 subject-internal comparison: same split and model, only input representation changes.
+  # DB3 被试内比较：保持划分和模型一致，仅改变输入表示。
   db3_subjects: [5,6]
   exercises: [1,2]
   input_modes: ["raw", "enhanced"]
@@ -212,15 +212,15 @@ exp3_regressor:
   continuous_viz_points: 1280       # 6.4 s at target_fs=200; test-only continuous figure.
   continuous_viz_min_overlap: 2     # Every plotted point must be supported by two short windows.
 
-  # Dynamic-angle diagnostics only; does not alter train/val/test membership.
+  # 仅作动态角度诊断；不改变训练/验证/测试成员关系。
   dynamic_subset_enabled: true
   dynamic_score: "global_max_ptp"
   dynamic_min_ptp: 0.05
   dynamic_min_train_windows: 8
   dynamic_viz_top_k: 8
 
-  # Fixed DB2-validated continuous output rule. It changes only prediction output,
-  # never TCN training, labels, or the train/val/test split.
+  # 经 DB2 验证的固定连续输出规则。它只改变预测输出，
+  # 不改变 TCN 训练、标签或训练/验证/测试划分。
   output_postprocess_enabled: true
   output_postprocess_fusion: "triangular_overlap_add"
   output_postprocess_filter: "butterworth"
@@ -230,7 +230,7 @@ exp3_regressor:
   output_postprocess_savgol_polyorder: 2
 
 
-# --- Experiment 4: DB3 48-class gesture recognition ---
+# --- 实验四：DB3 48 类手势识别 ---
 exp4_gesture:
   subjects: [2,3,4,5,6,7,8,9,11]
   exercises: [1,2,3]
@@ -239,10 +239,10 @@ exp4_gesture:
   min_repetition_ratio: 0.80
   random_seed: 42
 
-# Independent literature reproductions. They are never part of the MCIA A/B
-# endpoint and run only when enabled here or requested with the run_all flag.
+# 独立文献复现。它们从不构成 MCIA A/B 终点的一部分，
+# 仅在此处启用或通过 run_all 标志请求时运行。
 
-# Protocol §5 C-group (amputee-donor prior) — frozen 2026-09-10 after dev screen
+# 协议 §5 C 组（截肢者供体先验）——开发筛查后于 2026-09-10 冻结。
 c_adaptation:
   mode: "adapter"        # last-2-block adapters + domain_embed[1] + pred_head
   lr: 0.0001
@@ -262,6 +262,6 @@ literature_baselines:
   sgmd_aae_epochs: 100
   sgmd_aae_batch_size: 64  # 2026-09-10 提速：32->64（8GB 卡显存安全；已随 changelog 披露）
   cp_wopt_rank: 8
-  # Task-matched comparison: 0 means use the complete MCIA DB2 training pool.
-  # Reducing this is allowed only for explicitly labelled development runs.
+  # 任务匹配比较：0 表示使用完整 MCIA DB2 训练池。
+  # 仅明确标注的开发运行可以减少该数值。
   sgmd_pretrain_max_windows: 0

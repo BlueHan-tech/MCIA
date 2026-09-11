@@ -18,7 +18,7 @@ from data.dataset_db2_emg import moving_average
 
 
 def prepare_data_db3(data_loader, subject_ids, config, exercises=None, return_metadata=False):
-    """Prepare DB3 EMG windows without crossing exercises or leaking test scaling."""
+    """准备 DB3 EMG 窗口；不跨 exercise，且不泄漏测试集缩放统计量。"""
     exercises = list(exercises or config.get("transfer_exercises", [1]))
     factor = int(config["orig_fs"] / config["target_fs"])
     window_size, stride = int(config["window_size"]), int(config["stride"])

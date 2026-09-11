@@ -1,4 +1,4 @@
-"""Fixed Key10 CyberGlove target contract for continuous angle estimation."""
+"""连续角度估计使用的固定 Key10 CyberGlove 目标契约。"""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ KEY10_PLOT_GROUPS = {
 
 
 def key10_target_metadata() -> dict:
-    """Return the serialized target definition saved with every new artifact."""
+    """返回应写入每个新产物的可序列化目标定义。"""
     return {
         "name": KEY10_TARGET_NAME,
         "dimension": KEY10_DIM,
@@ -51,7 +51,7 @@ def key10_target_metadata() -> dict:
 
 
 def select_key10_angles(angle_values: np.ndarray) -> np.ndarray:
-    """Select the fixed Key10 target from a raw or normalized 22-channel glove array."""
+    """从原始或归一化的 22 通道 glove 数组中选择固定 Key10 目标。"""
     values = np.asarray(angle_values)
     if values.ndim < 1 or values.shape[-1] != 22:
         raise ValueError(
@@ -71,7 +71,7 @@ def assert_key10_target(values: np.ndarray, context: str) -> None:
 
 
 def key10_prediction_metadata() -> dict:
-    """Return NPZ-compatible arrays describing the fixed prediction target."""
+    """返回描述固定预测目标的 NPZ 兼容数组。"""
     return {
         "angle_target_name": np.asarray(KEY10_TARGET_NAME),
         "angle_target_dimension": np.asarray(KEY10_DIM, dtype=np.int64),
@@ -81,7 +81,7 @@ def key10_prediction_metadata() -> dict:
 
 
 def assert_key10_prediction_payload(payload: Mapping[str, np.ndarray], context: str) -> None:
-    """Reject legacy 22-D NPZ artifacts instead of silently resuming them."""
+    """拒绝旧版 22 维 NPZ 产物，而非静默从其继续运行。"""
     required = {
         "target",
         "angle_target_name",
