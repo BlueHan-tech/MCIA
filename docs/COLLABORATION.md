@@ -20,6 +20,10 @@
 | 质量掩码 | hard-zero 与 WC-BQD v0.1 的并集 | `EXPERIMENT_PROTOCOL.md` §4；`WCBQD_DESIGN.md` |
 | 正式确认目标 | S03/S07/S09；开发为 S05/S06；供体为 S02/S04/S08/S11 | `EXPERIMENT_PROTOCOL.md` §2 |
 
+## 历史冻结
+
+`docs/EXPERIMENT_HISTORY_ARCHIVE.md` 于 2026-09-11 建立，冻结截至该日的已运行证据、已淘汰/暂停路线、方法保留边界和未验证事项。它防止后续清理旧主链路时丢失决策理由；不改变本文件上方方案地图，也不把正在讨论的新实时受控掉线方案视为已采纳。
+
 ## 决策记录
 
 ### D-001｜已确认｜2026-09-10
