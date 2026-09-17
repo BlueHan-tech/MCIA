@@ -3,7 +3,7 @@
 仅用 DB2 开发被试 S29-S32；不读取/运行/生成 S33-S40、DB3、下游 TCN、SGMD-AAE、
 CP-WOPT 的任何结果。非主方法接入：不改 scripts/、models/、config.yaml、协议、MCIA。
 
-预注册四臂（除此之外无任何候选；不以中间结果删 seed/改 epoch/增减层/改损失）：
+预注册四臂（除此之外无任何候选；不以中间结果删随机种子/改轮数/增减层/改损失）：
   A  E-004 基线：8,000 训练窗（E-003 冻结子集），RF=32，hidden=16；
   B  仅扩大训练数据：全部 28,218 个 DB2 训练窗，RF=32，hidden=16；
   C  在 B 上仅扩大因果历史：全池，RF=64（dilation 1..32），hidden=16；
@@ -11,11 +11,11 @@ CP-WOPT 的任何结果。非主方法接入：不改 scripts/、models/、confi
 
 冻结条件（与 E-003/E-004 完全一致）：
   base = Ridge + L32 因果线性残差头（同 8,000 窗子集、训练掩码种子 20260910、
-  lambda=1e-3、逐通道精确正态方程；对 E-003 记录内置漂移断言）；交付 clip ->
-  patch crossfade -> observed 回填；ScenarioMix 评估掩码 seed=20260910+sid；
-  masked NRMSE（峰值 1）与 K_obs 分层同 E-001/002/003/004。TCN 仅预测 base 残差，
+  lambda=1e-3、逐通道精确正态方程；对 E-003 记录内置漂移断言）；交付：裁剪 ->
+  补丁边界交叉淡化 -> 观测值回填；ScenarioMix 评估掩码 seed=20260910+sid；
+  掩码区域 NRMSE（峰值 1）与 K_obs 分层同 E-001/002/003/004。TCN 仅预测 base 残差，
   输入 [base, observed, mask]，严格因果，观测位硬回填；AdamW lr=1e-3、batch=64、
-  30 epochs、无 early stopping/checkpoint 选择；每臂同 5 seeds 20260911-20260915。
+  30 轮、无早停/检查点选择；每臂同 5 个随机种子 20260911-20260915。
 
 臂 B/C/D 的扩池训练掩码规则（预声明）：E-003/E-004 的 8,000 子集窗沿用同一
 生成器流的既有实现（逐位一致）；其余 20,218 窗用同一生成器实例的续流（同一
@@ -27,8 +27,8 @@ seed 20260910 的 ScenarioMix 实现的自然扩展），保证共享子集掩�
 掩码与 masked 指标（scripts/run_task_matched_literature_baselines.py）；K_obs 分层
 （dev/attribution_ladder.py）；配置（utils/paper_pipeline.py）。
 
-选择规则（预声明）：(2) 取被试等权 5-seed 均值最低的臂；(3) 若最佳臂相对
-E-004 的平均改善 <= E-004 五 seed sample SD（0.000394008），视为复杂化证据不足，
+选择规则（预声明）：(2) 取被试等权的五种子均值最低的臂；(3) 若最佳臂相对
+E-004 的平均改善 <= E-004 五种子的样本标准差（0.000394008），视为复杂化证据不足，
 保留 E-004；(4) 若最佳臂未在 >=3/4 被试上呈现平均同方向改善，也保留 E-004；
 (5) 完成四臂即停止，不因结果接近继续调参。判定输出唯一待冻结候选或保留 E-004。
 """

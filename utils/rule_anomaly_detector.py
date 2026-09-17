@@ -235,20 +235,20 @@ class RuleAnomalyDetector:
 
     def _require_fit(self) -> None:
         if self.dead_channels_ is None or self.rms_threshold_ is None or self.mad_threshold_ is None:
-            raise RuntimeError("Call fit(emg_windows) before detect().")
+            raise RuntimeError("调用 detect() 前必须先调用 fit(emg_windows)。")
 
     def _trim_windows(self, windows: np.ndarray) -> np.ndarray:
         if windows.ndim != 3:
-            raise ValueError(f"Expected windows with shape (N,T,C), got {windows.shape}")
+            raise ValueError(f"窗口形状应为 (N,T,C)，实际为 {windows.shape}")
         usable = (windows.shape[1] // self.cfg.patch_size) * self.cfg.patch_size
         if usable <= 0:
-            raise ValueError("Window length must be at least one patch.")
+            raise ValueError("窗口长度必须至少包含一个 patch。")
         return windows[:, :usable, :]
 
     def _trim_window(self, window: np.ndarray) -> np.ndarray:
         if window.ndim != 2:
-            raise ValueError(f"Expected window with shape (T,C), got {window.shape}")
+            raise ValueError(f"窗口形状应为 (T,C)，实际为 {window.shape}")
         usable = (window.shape[0] // self.cfg.patch_size) * self.cfg.patch_size
         if usable <= 0:
-            raise ValueError("Window length must be at least one patch.")
+            raise ValueError("窗口长度必须至少包含一个 patch。")
         return window[:usable, :]

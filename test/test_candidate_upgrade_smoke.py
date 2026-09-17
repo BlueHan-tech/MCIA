@@ -62,7 +62,7 @@ def test_range_penalty() -> None:
 def test_rule_aligned_mask() -> None:
     base = ScenarioMixMaskGenerator(n_channels=C, time_steps=T, patch_size=P,
                                     rng=np.random.default_rng(0))
-    bank = base.generate_batch_masks(16, device="cpu").numpy().transpose(0, 2, 1)  # -> (M,T,C) 1=observed
+    bank = base.generate_batch_masks(16, device="cpu").numpy().transpose(0, 2, 1)  # -> (M,T,C)，1=已观测
     gen = RuleAlignedMaskGenerator(mask_bank=bank, patch_size=P, rng=np.random.default_rng(1))
     out = gen.generate_batch_masks(8, n_channels=C, time_steps=T, device="cpu")
     arr = out.numpy()

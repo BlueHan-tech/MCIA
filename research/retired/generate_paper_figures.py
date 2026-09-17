@@ -1,4 +1,4 @@
-"""Retired paper-figure entry point pending DB3 experiment redesign."""
+"""已退役的论文图像入口，等待 DB3 实验重新设计。"""
 
 from __future__ import annotations
 

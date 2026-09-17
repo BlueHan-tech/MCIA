@@ -1,9 +1,8 @@
-"""Dev-only DB3 raw sEMG panels grouped by exercise/task/rep.
+"""仅供开发使用，按 exercise/任务/repetition 分组的 DB3 原始 sEMG 面板。
 
-This script is intentionally not connected to run_all_experiments.py. It reads
-one DB3 subject through the existing NinaProDataLoader path, applies the same lightweight
-preprocessing used by prepare_data_db3, and writes raw/original sEMG figures only.
-No checkpoints, caches, metrics, masks, predictions, or run outputs are changed.
+本脚本不接入 run_all_experiments.py。它通过现有 NinaProDataLoader 路径读取
+一名 DB3 被试，应用与 prepare_data_db3 相同的轻量预处理，仅写出原始 sEMG 图像。
+不改变检查点、缓存、指标、掩码、预测或 run 输出。
 """
 
 from __future__ import annotations

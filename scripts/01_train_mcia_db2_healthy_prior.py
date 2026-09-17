@@ -1,7 +1,7 @@
 """
 【实验一】训练 MCIA 补全模型 (DB2 健康人 → DB2 健康人)
 
-MCIA = Multi-Channel Imputation with Axial-attention
+MCIA = 带轴向注意力的多通道补全
 
 训练流程：
 1. 预训练：ScenarioMix (S1/S2/S3) + 前 warmup_epochs（config，默认 8）弱化 S1 warmup
@@ -120,7 +120,7 @@ def _assert_mask_contract(mask_binary_btc: torch.Tensor, patch_size: int, tag: s
     assert torch.all((mask_binary_btc == 0) | (mask_binary_btc == 1)), \
         f"{tag} mask not strictly 0/1"
     B, T, C = mask_binary_btc.shape
-    # patch 对齐：每个 patch 内要么全 0 要么全 1
+    # 补丁对齐：每个补丁内要么全 0 要么全 1
     assert T % patch_size == 0, f"{tag} T={T} not divisible by patch_size={patch_size}"
     N = T // patch_size
     grouped = mask_binary_btc.permute(0, 2, 1).reshape(B, C, N, patch_size)
@@ -128,7 +128,7 @@ def _assert_mask_contract(mask_binary_btc: torch.Tensor, patch_size: int, tag: s
     hi = grouped.amax(dim=-1)
     mixed = int(((lo < 0.5) & (hi > 0.5)).sum().item())
     assert mixed == 0, f"{tag} {mixed} mixed patches detected (patch-align violated)"
-    # 最小池化零信息损失：原始掩码与 patch 级 mask_ratio 必须严格一致
+    # 最小池化无信息损失：原始掩码与补丁级 mask_ratio 必须严格一致
     raw_ratio = 1.0 - float(mask_binary_btc.mean().item())
     patch_mask = derive_patch_time_mask(mask_binary_btc, patch_size)  # (B,C,N)
     patch_ratio = 1.0 - float(patch_mask.mean().item())
@@ -140,12 +140,12 @@ def train_epoch_mcia(model, dataloader, optimizer, device, mask_gen, criterion,
                     difficulty=0.5, cfg_dropout_prob=0.1, scenario=None,
                     debug_assert_steps: int = 0, patch_size: int = 8,
                     use_personal_condition: bool = False):
-    """MCIA 训练一个 epoch
+    """MCIA 训练一轮
 
-    Args:
-        scenario: 强制场景（ScenarioMix 用；None 表示按权重随机 per sample）
+    参数：
+        scenario: 强制场景（ScenarioMix 用；None 表示按权重随机逐样本选择）
         difficulty: 遗留课程学习保留入口
-        debug_assert_steps: 训练前 N step 跑运行期契约断言
+        debug_assert_steps: 训练前 N 步 跑运行期契约断言
     """
     model.train()
     total_loss = 0.0
@@ -221,9 +221,9 @@ def train_epoch_mcia(model, dataloader, optimizer, device, mask_gen, criterion,
 
 
 def _make_baseline_fns(timemae_model, device):
-    """构造 baseline_fns dict，传给 build_report 的 baseline_fns 参数。
+    """构造 baseline_fns 字典，传给 build_report 的 baseline_fns 参数。
 
-    每个 fn 签名：(emg_masked_np: B×T×C, mask_np: B×T×C) -> completed_np: B×T×C
+    每个函数的签名：(emg_masked_np: B×T×C, mask_np: B×T×C) -> completed_np: B×T×C
     mask_np: 1=已知，0=缺失
     """
     import numpy as np
@@ -269,7 +269,7 @@ def main():
 
     # 固定全部随机源：训练前第一件事
     set_seed(BASELINE_SEED)
-    print(f"[repro] seed={BASELINE_SEED} | cudnn.deterministic=True | cudnn.benchmark=False")
+    print(f"[可复现性] 种子={BASELINE_SEED} | cudnn.deterministic=True | cudnn.benchmark=False")
 
     output_dir = Path(CONFIG['exp1_dir'])
     checkpoint_dir = output_dir / 'checkpoints'
@@ -280,8 +280,8 @@ def main():
         path.mkdir(parents=True, exist_ok=True)
     run_label = Path(CONFIG.get('run_dir', output_dir)).name
 
-    print(f"Device: {device}")
-    print(f"Output: {output_dir}")
+    print(f"设备：{device}")
+    print(f"输出目录：{output_dir}")
 
     data_loader = NinaProDataLoader(CONFIG['db2_path'], CONFIG['db3_path'], fs=CONFIG['orig_fs'])
 
@@ -290,7 +290,7 @@ def main():
     test_subjects = CONFIG['test_subjects']
 
     print("="*80)
-    print(f"Train: {len(train_subjects)} subjects | Val: {len(val_subjects)} | Test: {len(test_subjects)}")
+    print(f"训练：{len(train_subjects)} 名被试 | 验证：{len(val_subjects)} 名 | 测试：{len(test_subjects)} 名")
     print("="*80)
 
     metadata_dict = load_db2_metadata(CONFIG['metadata_csv'])
@@ -299,7 +299,7 @@ def main():
     val_data = load_and_cache_data(data_loader, val_subjects, CONFIG, cache_file=cache_dir / 'val_cache.pt')
 
     test_data_dict_all = {}
-    print("\n[Loading test data]...")
+    print("\n[正在加载测试数据]...")
     for sid in test_subjects:
         test_data_dict_all[sid] = load_and_cache_data(data_loader, [sid], CONFIG, cache_file=cache_dir / f's{sid:02d}_cache.pt')
 
@@ -327,17 +327,17 @@ def main():
             scenario_params=CONFIG.get('scenario_params', None),
         )
         curriculum = None
-        print(f"[mask] strategy=scenario_mix fixed_policy "
+        print(f"[掩码] 策略=scenario_mix 固定策略 "
               f"val_scenario={val_scenario} debug_contract={debug_mask_contract}")
-        print(f"[mask] weights={mask_gen.weights}")
-        print(f"[mask] min_alive={mask_gen.min_alive}")
+        print(f"[掩码] 权重={mask_gen.weights}")
+        print(f"[掩码] 最少存活通道={mask_gen.min_alive}")
     else:
         mask_gen = GroupWiseMaskGenerator(n_channels=12, time_steps=CONFIG['window_size'])
         curriculum = AdaptiveCurriculumScheduler(
             total_epochs=CONFIG['num_epochs'],
             warmup_epochs=int(CONFIG['num_epochs'] * 0.2),
         )
-        print(f"[mask] strategy=legacy_curriculum (GroupWiseMaskGenerator + Adaptive)")
+        print(f"[掩码] 策略=旧版课程学习（GroupWiseMaskGenerator + Adaptive）")
 
     model = MCIA(
         window_size=CONFIG['window_size'],
@@ -357,9 +357,9 @@ def main():
     mcia_wrapper = MCIA_Wrapper(model)
 
     total_params = sum(p.numel() for p in model.parameters())
-    print(f"Model params: {total_params:,}")
+    print(f"模型参数量：{total_params:,}")
 
-    # 保存 epoch-0「出厂」检查点 —— 后续消融实验从此出发，隔绝初始化差异
+    # 保存第 0 轮「出厂」检查点 —— 后续消融实验从此出发，隔绝初始化差异
     init_norms = probe_film_norms(model)
     torch.save({
         'model': model.state_dict(),
@@ -387,7 +387,7 @@ def main():
         criterion = None
 
     optimizer = optim.AdamW(model.parameters(), lr=CONFIG['learning_rate'], weight_decay=1e-5)
-    # 与早停一致：监控 corr_masked（越大越好），避免 loss 与 corr 方向打架
+    # 与早停一致：监控 corr_masked（越大越好），避免损失与相关系数方向冲突
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='max', factor=CONFIG['lr_factor'],
         patience=CONFIG['lr_patience'],
@@ -395,7 +395,7 @@ def main():
     )
 
     best_val_loss = float('inf')
-    best_val_corr = -1.0   # Early stopping and checkpoint selection use overall masked correlation.
+    best_val_corr = -1.0   # 早停与检查点选择使用掩码区域的总体相关系数。
     no_improve = 0
     train_history, val_history = [], []
     val_masked_mse_history, val_masked_mae_history = [], []
@@ -414,8 +414,8 @@ def main():
     if viz_enable:
         viz_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\nTraining ({mask_strategy} + Fixed Target-Domain Validation)...")
-    print(f"[train] log_every_epochs={log_every}  viz_every_epochs={viz_every}")
+    print(f"\n正在训练（{mask_strategy} + 固定目标域验证）...")
+    print(f"[训练] 日志间隔={log_every}  可视化间隔={viz_every}")
     print("="*80)
     start_time = time.time()
     use_scenario_mix = (mask_strategy == 'scenario_mix')
@@ -497,7 +497,7 @@ def main():
         improved = ""
         if val_corr > best_val_corr:
             best_val_corr = val_corr
-            best_val_loss = val_loss   # 同步记录对应的 loss（供日志/历史用）
+            best_val_loss = val_loss   # 同步记录对应的损失（供日志/历史用）
             no_improve = 0
             torch.save({
                 'model': model.state_dict(),
@@ -529,7 +529,7 @@ def main():
                 f"grad={train_loss_parts.get('boundary_grad_loss', float('nan')):.6f} "
                 f"aux={train_loss_parts.get('aux_loss', float('nan')):.6f}"
             )
-            print(f"Epoch {epoch+1:3d}/{CONFIG['num_epochs']} | {scn_tag:10s} | {phase_name[:25]:25s} | "
+            print(f"轮次 {epoch+1:3d}/{CONFIG['num_epochs']} | {scn_tag:10s} | {phase_name[:25]:25s} | "
                   f"Train: {train_loss:.6f} | Val_loss: {val_loss:.6f} | "
                   f"Val_criterion: {val_metrics.get('criterion_loss', float('nan')):.6f} | "
                   f"Val_masked_mse: {val_metrics['mse_masked']:.6f} | "
@@ -541,15 +541,15 @@ def main():
                   f"Val_whole_corr: {val_metrics['corr_whole']:.4f} | "
                   f"mask={val_metrics['mask_ratio']:.2%} | Best_corr_masked: {best_val_corr:.4f} | "
                   f"{_norms}|head|={norms['head_norm']:.3f} | {elapsed:.0f}s{improved}")
-            print(f"    loss_parts | {_loss_parts}")
+            print(f"    损失分项 | {_loss_parts}")
             if use_scenario_mix:
-                print(f"    mask_weights | {mask_gen.weights}")
+                print(f"    掩码权重 | {mask_gen.weights}")
                 corr_line = " ".join(
                     f"{scn.upper()}={val_metrics_per_scenario[scn]['corr_masked']:.4f}"
                     for scn in ('s1', 's2', 's3')
                 )
-                print(f"    val_corr_masked_by_scenario | {corr_line}")
-                print(f"    val_by_scenario_detail | main={val_scenario}")
+                print(f"    各场景验证缺失区相关系数 | {corr_line}")
+                print(f"    各场景验证详情 | 主场景={val_scenario}")
                 for scn in ('s1', 's2', 's3'):
                     m = val_metrics_per_scenario[scn]
                     print(
@@ -575,13 +575,13 @@ def main():
                     scenario=(val_scenario if use_scenario_mix else None),
                 )
             except Exception as viz_err:
-                print(f"    [viz] snapshot skipped: {viz_err}")
+                print(f"    [可视化] 已跳过快照：{viz_err}")
 
         if no_improve >= CONFIG['patience']:
-            print(f"\nEarly stop: no improvement for {CONFIG['patience']} epochs")
+            print(f"\n提前停止：连续 {CONFIG['patience']} 轮没有改善")
             break
 
-    print(f"\nTraining done in {(time.time()-start_time)/60:.1f} min | Best corr_masked: {best_val_corr:.4f}")
+    print(f"\n训练完成，用时 {(time.time()-start_time)/60:.1f} 分钟 | 最佳缺失区相关系数：{best_val_corr:.4f}")
 
     save_training_history({
         'seed': BASELINE_SEED,
@@ -614,13 +614,13 @@ def main():
 
     # ===== 逐被试微调与评估 =====
     print("\n" + "="*80)
-    print("Per-subject evaluation (Test on Reps 2,5)")
+    print("逐被试评估（在 repetition 2、5 上测试）")
     print("="*80)
 
     all_results = []
     run_db2_test_finetune = bool(CONFIG.get('run_db2_test_finetune', True))
 
-    # ── TimeMAE Baseline 预训练（在训练集上，与主模型共享 train_loader）──────
+    # ── TimeMAE 基线预训练（在训练集上，与主模型共享 train_loader）──────
     timemae_model = None
     if viz_enable:
         try:
@@ -640,9 +640,9 @@ def main():
                 lr                = CONFIG.get('timemae_lr', 1e-3),
                 save_path         = timemae_ckpt,
             )
-            print(f"  [TimeMAE] Pre-training done → {timemae_ckpt}")
+            print(f"  [TimeMAE] 预训练完成 → {timemae_ckpt}")
         except Exception as e:
-            print(f"  [TimeMAE] Pre-training skipped: {e}")
+            print(f"  [TimeMAE] 已跳过预训练：{e}")
             timemae_model = None
 
     for subject_id in test_subjects:
@@ -686,7 +686,7 @@ def main():
             eval_kwargs['scenario'] = val_scenario
         zs_metrics = evaluate_subject(model, mcia_wrapper, test_loader_subj, device, mask_gen,
                                       **eval_kwargs)
-        print(f"  Zero-shot: corr_masked={zs_metrics.get('corr_masked', float('nan')):.4f} "
+        print(f"  零样本：缺失区相关系数={zs_metrics.get('corr_masked', float('nan')):.4f} "
               f"mse_masked={zs_metrics.get('mse_masked', float('nan')):.6f} "
               f"mae_masked={zs_metrics.get('mae_masked', float('nan')):.6f} "
               f"corr_partial={zs_metrics.get('corr_masked_partial', float('nan')):.4f}")
@@ -696,7 +696,7 @@ def main():
             try:
                 zs_report_dir = figures_dir / 'test' / f'S{subject_id:02d}' / 'zeroshot'
                 zs_report_dir.mkdir(parents=True, exist_ok=True)
-                # 确保使用预训练权重（finetune 模式下下面会修改权重，这里先出图）
+                # 确保使用预训练权重（微调模式下后面会修改权重，这里先出图）
                 model.load_state_dict(checkpoint['model'])
                 model.eval()
                 zs_report_kwargs = dict(
@@ -715,9 +715,9 @@ def main():
                 else:
                     zs_report_kwargs['difficulty_levels'] = [0.1, 0.3, 0.5, 0.7, 0.95]
                 build_report(**zs_report_kwargs)
-                print(f"  [viz] S{subject_id:02d} zero-shot report → {zs_report_dir}")
+                print(f"  [可视化] S{subject_id:02d} 零样本报告 → {zs_report_dir}")
             except Exception as e:
-                print(f"  [viz] S{subject_id:02d} zero-shot report skipped: {e}")
+                print(f"  [可视化] S{subject_id:02d} 已跳过零样本报告：{e}")
 
         # 基线对比（与 MCIA 统一：corr_masked / mse_masked / mae_masked）
         cs_metrics = tm_metrics = None
@@ -727,7 +727,7 @@ def main():
                 test_loader_subj, mask_gen, device,
                 scenario=cs_scenario, difficulty=1.0,
             )
-            print(f"  Cubic Spline: corr_masked={cs_metrics['corr_masked']:.4f} "
+            print(f"  三次样条：缺失区相关系数={cs_metrics['corr_masked']:.4f} "
                   f"mse_masked={cs_metrics['mse_masked']:.6f} "
                   f"mae_masked={cs_metrics.get('mae_masked', float('nan')):.6f}")
 
@@ -737,11 +737,11 @@ def main():
                         timemae_model, test_loader_subj, mask_gen, device,
                         scenario=cs_scenario, difficulty=1.0,
                     )
-                    print(f"  TimeMAE:      corr_masked={tm_metrics['corr_masked']:.4f} "
+                    print(f"  TimeMAE：     缺失区相关系数={tm_metrics['corr_masked']:.4f} "
                           f"mse_masked={tm_metrics['mse_masked']:.6f} "
                           f"mae_masked={tm_metrics.get('mae_masked', float('nan')):.6f}")
                 except Exception as e:
-                    print(f"  [TimeMAE] Eval skipped: {e}")
+                    print(f"  [TimeMAE] 已跳过评估：{e}")
 
             if viz_enable:
                 baseline_results = {'MCIA Model': zs_metrics, 'Cubic Spline': cs_metrics}
@@ -752,9 +752,9 @@ def main():
                     baseline_results, cmp_dir,
                     title=f'S{subject_id:02d} Baseline Comparison',
                 )
-                print(f"  [viz] S{subject_id:02d} baseline comparison → {cmp_dir}")
+                print(f"  [可视化] S{subject_id:02d} 基线比较 → {cmp_dir}")
         except Exception as e:
-            print(f"  [baseline] S{subject_id:02d} comparison skipped: {e}")
+            print(f"  [基线] S{subject_id:02d} 已跳过比较：{e}")
 
         if not run_db2_test_finetune:
             all_results.append({
@@ -771,7 +771,7 @@ def main():
             })
             continue
 
-        # 微调：空间主干 + patch 前端共享低 LR（保留跨被试共性）；
+        # 微调：空间主干 + 补丁前端共享低学习率（保留跨被试共性）；
         # 模型范数探针，保留为唯一日志记录路径。
         model.load_state_dict(checkpoint['model'])
         for param in model.parameters():
@@ -784,7 +784,7 @@ def main():
         for mod in spatial_modules:
             for p in mod.parameters():
                 spatial_param_ids.add(id(p))
-        # 位置编码 / mask tokens 视为先验通道；个人信息权重保留兼容但默认不参与主流程。
+        # 位置编码 / 掩码标记 视为先验通道；个人信息权重保留兼容但默认不参与主流程。
         extra_params = [model.chan_pos, model.temp_pos, model.mask_token, model.uncond_token]
         for extra in extra_params:
             spatial_param_ids.add(id(extra))
@@ -823,7 +823,7 @@ def main():
 
         ft_metrics = evaluate_subject(model, mcia_wrapper, test_loader_subj, device, mask_gen,
                                       **eval_kwargs)
-        print(f"  Finetuned: MSE={ft_metrics['mse']:.6f} Corr={ft_metrics['correlation']:.4f}")
+        print(f"  微调后：MSE={ft_metrics['mse']:.6f}，相关系数={ft_metrics['correlation']:.4f}")
 
         improvement = {
             'mse': (zs_metrics['mse'] - ft_metrics['mse']) / (zs_metrics['mse'] + 1e-8) * 100,
@@ -858,9 +858,9 @@ def main():
                 else:
                     ft_report_kwargs['difficulty_levels'] = [0.1, 0.3, 0.5, 0.7, 0.95]
                 build_report(**ft_report_kwargs)
-                print(f"  [viz] S{subject_id:02d} finetuned report → {ft_report_dir}")
+                print(f"  [可视化] S{subject_id:02d} 微调报告 → {ft_report_dir}")
             except Exception as e:
-                print(f"  [viz] S{subject_id:02d} finetuned report skipped: {e}")
+                print(f"  [可视化] S{subject_id:02d} 已跳过微调报告：{e}")
 
 
     if run_db2_test_finetune:
@@ -878,7 +878,7 @@ def main():
                     vals.append(v)
             return float(np.mean(vals)) if vals else float('nan')
 
-        print("\nDB2 held-out zero-shot summary (aligned: masked-region metrics)")
+        print("\nDB2 留出集零样本摘要（统一采用缺失区指标）")
         for method in ('MCIA', 'Cubic Spline', 'TimeMAE'):
             print(f"  {method:14s} corr_masked={_mean_metric(all_results, method, 'corr_masked'):.4f} "
                   f"mse_masked={_mean_metric(all_results, method, 'mse_masked'):.6f} "
@@ -921,8 +921,8 @@ def main():
             ax.bar_label(bars, fmt='%.4f', fontsize=7, padding=2)
             avg_mse = float(np.mean(mse_vals))
             ax.axhline(avg_mse, color='red', linestyle='--', linewidth=1, label=f'mean={avg_mse:.4f}')
-            ax.set_title('Zero-shot MSE (masked) per Test Subject')
-            ax.set_ylabel('mse_masked')
+            ax.set_title('测试集逐被试零样本缺失区 MSE')
+            ax.set_ylabel('缺失区 MSE')
             ax.legend(fontsize=8)
             fig.tight_layout()
             fig.savefig(summary_dir / 'subject_mse_bar.png', dpi=150)
@@ -934,26 +934,26 @@ def main():
             ax.bar_label(bars, fmt='%.4f', fontsize=7, padding=2)
             avg_corr = float(np.mean(corr_vals))
             ax.axhline(avg_corr, color='red', linestyle='--', linewidth=1, label=f'mean={avg_corr:.4f}')
-            ax.set_title('Zero-shot Corr (masked) per Test Subject')
-            ax.set_ylabel('corr_masked')
+            ax.set_title('测试集逐被试零样本缺失区相关系数')
+            ax.set_ylabel('缺失区相关系数')
             ax.legend(fontsize=8)
             fig.tight_layout()
             fig.savefig(summary_dir / 'subject_corr_bar.png', dpi=150)
             plt.close(fig)
 
-            print(f"\n[viz] Test summary → {summary_dir}")
+            print(f"\n[可视化] 测试摘要 → {summary_dir}")
         except Exception as e:
-            print(f"  [viz] Test summary skipped: {e}")
+            print(f"  [可视化] 已跳过测试摘要：{e}")
 
     # ===== 生成补全质量体检报告 =====
     if viz_enable:
         try:
-            print("\nBuilding completion-quality report...")
+            print("\n正在生成补全质量报告...")
             report_dir = figures_dir / 'report'
             report_dir.mkdir(parents=True, exist_ok=True)
 
-            # 重要：此时 model 是最后一个测试被试（S40）的 finetune 权重，
-            # 直接拿去做 val 集体检会语义混乱。这里 reload 预训练最优 ckpt，
+            # 重要：此时 model 是最后一个测试被试（S40）的微调权重，
+            # 直接用于验证集体检会语义混乱。这里重新加载预训练最优检查点，
             # 让最终报告反映「基础 MCIA 在留出健康被试上的零样本补全能力」。
             model.load_state_dict(checkpoint['model'])
             model.eval()
@@ -975,11 +975,11 @@ def main():
             else:
                 report_kwargs['difficulty_levels'] = [0.1, 0.3, 0.5, 0.7, 0.95]
             report_path = build_report(**report_kwargs)
-            print(f"  Report: {report_path}")
+            print(f"  报告：{report_path}")
         except Exception as e:
-            print(f"  [viz] Report skipped: {e}")
+            print(f"  [可视化] 已跳过报告：{e}")
 
-    print(f"\nAll results saved to: {output_dir}")
+    print(f"\n全部结果已保存至：{output_dir}")
 
 
 if __name__ == '__main__':

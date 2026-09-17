@@ -1,4 +1,4 @@
-"""Fast formula-level checks for the CP-WOPT literature baseline."""
+"""CP-WOPT 文献基线的快速公式级检查。"""
 
 from __future__ import annotations
 

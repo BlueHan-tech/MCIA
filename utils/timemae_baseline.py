@@ -1,7 +1,7 @@
 """
-TimeMAE Completion Baseline
+TimeMAE 补全基线
 ============================================================
-自包含实现（不依赖 TimeMAE-main 目录），用于与 MCIA 模型做 baseline 对比。
+自包含实现（不依赖 TimeMAE-main 目录），用于与 MCIA 模型做基线对比。
 
 基于论文：TimeMAE: Self-Supervised Representations of Time Series with Decoupled
          Masked Autoencoders (https://arxiv.org/abs/2303.00320)
@@ -9,8 +9,8 @@ TimeMAE Completion Baseline
 关键改动（相对于原始 TimeMAE）：
   - 增加 recon_head: Linear(d_model → wave_length × C)，支持信号级重建
   - forward_completion(x, mask)：给定显式 mask 做推断，输出补全信号
-  - 训练增加 recon_loss (MSE on signal space) 与原始 align+token 损失联合优化
-  - 不包含分类 head（predict_head），不包含下游微调
+  - 训练增加 recon_loss（信号空间的均方误差），与原始 align+token 损失联合优化
+  - 不包含分类头（predict_head），不包含下游微调
 """
 
 from __future__ import annotations
@@ -187,7 +187,7 @@ class TimeMAECompletion(nn.Module):
         self.encoder = _Encoder(d_model, attn_heads, layers, dropout, True)
         self.momentum_encoder = _Encoder(d_model, attn_heads, layers, dropout, True)
 
-        # Tokenizer（离散 token 预测，原版预训练目标之一）
+        # 分词器（离散标记预测，原版预训练目标之一）
         self.tok_center = nn.Linear(d_model, vocab_size)
 
         self.reg = _Regressor(d_model, attn_heads, 4 * d_model, True, reg_layers)
@@ -229,10 +229,10 @@ class TimeMAECompletion(nn.Module):
     def pretrain_forward(self, x: torch.Tensor):
         """原始 TimeMAE 随机 mask 预训练 + 信号重建损失。
 
-        Returns
+        返回值
         -------
-        [rep_mask, rep_mask_pred] : 用于 align_loss (MSE in embedding space)
-        [token_pred_prob, tokens] : 用于 reconstruct_loss (CE on discrete tokens)
+        [rep_mask, rep_mask_pred] : 用于 align_loss（嵌入空间的均方误差）
+        [token_pred_prob, tokens] : 用于 reconstruct_loss（离散标记的交叉熵）
         recon_signal              : (B, n_mask, wave_length, C) 重建的信号片段
         signal_gt                 : (B, n_mask, wave_length, C) 对应的真值
         """
@@ -269,7 +269,7 @@ class TimeMAECompletion(nn.Module):
         WL, C = self.wave_length, self.C
         recon_signal = recon.view(B, len(m_idx), WL, C)
 
-        # 对应真值（从原始信号取对应 patch）
+        # 对应真值（从原始信号取对应补丁）
         gt_patches = []
         for pi in m_idx:
             t0, t1 = pi * WL, (pi + 1) * WL
@@ -287,11 +287,11 @@ class TimeMAECompletion(nn.Module):
 
     def forward_completion(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         """
-        Args:
+        参数：
             x    : (B, T, C)  原始信号（缺失区值任意）
             mask : (B, T, C)  1=已知，0=缺失
 
-        Returns:
+        返回值：
             (B, T, C) 补全结果，已知区使用真值
         """
         B, T, C = x.shape
@@ -305,9 +305,9 @@ class TimeMAECompletion(nn.Module):
         pos = self.position(patches)            # (B, N, D)
         patches_pos = patches + pos
 
-        # 逐 patch 判断是否缺失：均值 < 0.5 即为缺失 patch
+        # 逐补丁判断是否缺失：均值 < 0.5 即为缺失补丁
         patch_mask = mask_pad.reshape(B, N, WL, C).mean(dim=[2, 3])   # (B, N)
-        # 批内取多数：超过半数样本该 patch 为缺失，则视为缺失
+        # 批内取多数：超过半数样本的该补丁为缺失，则视为缺失
         is_masked = patch_mask.float().mean(0) < 0.5                   # (N,)
 
         v_idx = (~is_masked).nonzero(as_tuple=True)[0]
@@ -359,14 +359,14 @@ def train_timemae_baseline(
     momentum: float = 0.99,
     epochs: int = 30,
     lr: float = 1e-3,
-    alpha: float = 5.0,     # embedding align loss 权重
-    beta: float = 1.0,      # token prediction loss 权重
-    gamma: float = 2.0,     # signal reconstruction loss 权重
+    alpha: float = 5.0,     # 嵌入对齐损失权重
+    beta: float = 1.0,      # 标记预测损失权重
+    gamma: float = 2.0,     # 信号重建损失权重
     save_path: Optional[Path] = None,
 ) -> TimeMAECompletion:
     """在训练集上预训练 TimeMAECompletion。
 
-    Returns
+    返回值
     -------
     训练完成的 TimeMAECompletion 模型（已置于 device）。
     """

@@ -2,20 +2,20 @@
 DB3 截肢患者 sEMG 逐通道统计体检脚本（仅打印数字，无可视化）。
 
 对 DB3 全部 11 个截肢被试，复用与训练完全一致的预处理流水线
-(prepare_data_db3: 带通+陷波+整流+滑动平均包络+下采样+μ-law+robust min-max，
- 仅保留动作段)，按 subject × channel 打印以下统计量：
+(prepare_data_db3: 带通+陷波+整流+滑动平均包络+下采样+μ-law+稳健最小-最大归一化，
+ 仅保留动作段)，按“被试 × 通道”打印以下统计量：
 
   ① 每个窗口的 RMS               -> 每被试每通道 RMS 分布 (5/25/50/75/95 分位)
-  ② 每个 patch(8点) 的 MAD       -> 每被试每通道 MAD 分布 (同上 5 分位)
+  ② 每个补丁（8 点）的 MAD       -> 每被试每通道 MAD 分布 (同上 5 分位)
   ③ 每个窗口的峰值幅值(max|x|)   -> 每被试每通道分布 (同上 5 分位)
-  ④ 连续低 MAD patch 的最长连续段长度 (窗口内 MAD<1e-3 patch 的最长连续游程)
+  ④ 连续低 MAD 补丁的最长连续段长度 (窗口内 MAD<1e-3 补丁的最长连续游程)
                                   -> 每被试每通道分布 (同上 5 分位)
 
 定义说明：
 - RMS(窗口,通道)  = sqrt(mean_t x[t]^2)
-- MAD(patch,通道) = mean_t |x[t] - mean_t x[t]|   (patch 内 8 点的平均绝对偏差)
+- MAD(补丁,通道) = mean_t |x[t] - mean_t x[t]|   （补丁内 8 点的平均绝对偏差）
 - Peak(窗口,通道) = max_t |x[t]|
-- 低 MAD 游程       = 单个窗口内、沿时间方向连续 MAD<LOW_MAD_THRESH 的 patch 数的最大值
+- 低 MAD 游程       = 单个窗口内、沿时间方向连续 MAD<LOW_MAD_THRESH 的补丁数的最大值
 """
 
 import sys
@@ -44,7 +44,7 @@ def compute_patch_mad(segments: np.ndarray, patch_size: int) -> np.ndarray:
 
 
 def longest_low_mad_run_per_window(patch_mad: np.ndarray, thresh: float) -> np.ndarray:
-    """(N, n_patches, C) -> (N, C) 每个窗口内沿时间连续低 MAD patch 的最长游程。"""
+    """(N, n_patches, C) -> (N, C) 每个窗口内沿时间连续低 MAD 补丁的最长游程。"""
     is_low = patch_mad < thresh  # (N, n_patches, C)
     N, P, C = is_low.shape
     running = np.zeros((N, C), dtype=np.int32)
@@ -61,7 +61,7 @@ def collect_subject_stats(segments: np.ndarray, patch_size: int):
     rms = np.sqrt(np.mean(segments ** 2, axis=1))
     # ③ 每窗口峰值幅值: (N, C)
     peak = np.max(np.abs(segments), axis=1)
-    # ② 每 patch MAD: (N, n_patches, C) -> 展平为 (N*n_patches, C)
+    # ② 每个补丁的 MAD： (N, n_patches, C) -> 展平为 (N*n_patches, C)
     patch_mad = compute_patch_mad(segments, patch_size)
     mad_flat = patch_mad.reshape(-1, patch_mad.shape[-1])
     # ④ 每窗口最长低 MAD 游程: (N, C)

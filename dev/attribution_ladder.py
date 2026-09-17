@@ -99,7 +99,7 @@ class CenteredWindowOperator(LinearOperator):
 
 
 def fit_window_pca_basis(train: np.ndarray) -> tuple[dict, dict]:
-    """在全部 DB2 训练窗上做固定种子的截断 SVD，避免 full SVD 内存爆炸。"""
+    """在全部 DB2 训练窗上做固定种子的截断 SVD，避免完整 SVD 占用过多内存。"""
     flat = train.reshape(len(train), -1)
     mean = flat.mean(axis=0)
     operator = CenteredWindowOperator(train, mean, PCA_BATCH_WINDOWS)

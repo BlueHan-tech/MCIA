@@ -1,7 +1,7 @@
-"""Run one literature completion baseline on a supplied (N,T,C) .npy tensor.
+"""在给定的 (N,T,C) .npy 张量上运行一个文献补全基线。
 
-The caller is responsible for supplying the paper-specific data representation.
-For SGMD-AAE this is 240 x 12, 120-ms non-overlapping, 2-kHz DB2 windows.
+调用方负责提供论文规定的数据表示。SGMD-AAE 使用 240 x 12、120 ms、互不重叠的
+2 kHz DB2 窗口。
 """
 from __future__ import annotations
 import argparse, json, os, sys
@@ -27,7 +27,7 @@ def train_sgmd(train, test, ratio, epochs, batch_size, seed, device):
     loader = DataLoader(TensorDataset(torch.from_numpy(train)), batch_size=batch_size, shuffle=True)
     for epoch in range(epochs):
         for batch_index, (batch,) in enumerate(loader):
-            # SGMD-AAE Table 1 treats each sample as (time=240, channels=12).
+            # SGMD-AAE 表 1 将每个样本视为（时间=240，通道=12）。
             target = batch.to(device).unsqueeze(1)
             mask_seed = seed + epoch * len(loader) + batch_index
             observed = torch.from_numpy(mask_like(batch.numpy(), ratio, mask_seed)).to(device).unsqueeze(1)
@@ -43,17 +43,17 @@ def train_sgmd(train, test, ratio, epochs, batch_size, seed, device):
 def main():
     p = argparse.ArgumentParser(); p.add_argument("--method", choices=("sgmd_aae","cp_wopt"), required=True); p.add_argument("--input", required=True); p.add_argument("--missing-ratio", type=float, default=.3); p.add_argument("--seed", type=int, default=42); p.add_argument("--epochs", type=int, default=100); p.add_argument("--batch-size", type=int, default=32); p.add_argument("--rank", type=int, default=8); p.add_argument("--max-samples", type=int, default=512); a=p.parse_args()
     run = os.environ.get("MCIA_RUN_DIR");
-    if not run: raise RuntimeError("MCIA_RUN_DIR is required for this single-step baseline run.")
+    if not run: raise RuntimeError("该单步基线运行必须设置 MCIA_RUN_DIR。")
     values = np.load(a.input).astype(np.float32)
     if a.max_samples > 0:
         values = values[:a.max_samples]
-    if values.ndim != 3: raise ValueError("Input .npy must have shape (N,T,C).")
+    if values.ndim != 3: raise ValueError("输入 .npy 的形状必须为 (N,T,C)。")
     indices = np.random.default_rng(a.seed).permutation(len(values))
     split = max(1, int(.8*len(values)))
     train, test = values[indices[:split]], values[indices[split:]]
-    if not len(test): raise ValueError("Need at least two input windows.")
+    if not len(test): raise ValueError("至少需要两个输入窗口。")
     if a.method == "sgmd_aae":
-        if values.shape[1:] != (240,12): raise ValueError("Faithful SGMD-AAE requires (N,240,12) input.")
+        if values.shape[1:] != (240,12): raise ValueError("忠实复现 SGMD-AAE 要求输入形状为 (N,240,12)。")
         pred, observed = train_sgmd(train, test, a.missing_ratio, a.epochs, a.batch_size, a.seed, "cuda" if torch.cuda.is_available() else "cpu")
     else:
         observed = mask_like(test, a.missing_ratio, a.seed); result = complete_cp_wopt(test*observed, observed, CPWOPTConfig(rank=a.rank, seed=a.seed)); pred = result.reconstruction.astype(np.float32)

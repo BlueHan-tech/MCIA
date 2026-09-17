@@ -64,7 +64,7 @@ class EMGCompletionDataset(Dataset):
 def load_db2_metadata(csv_path):
     """
     加载 DB2 被试元数据
-    Returns: {subject_id: {'side': int, 'age': float, 'gender': int}}
+    返回值： {subject_id: {'side': int, 'age': float, 'gender': int}}
     """
     try:
         df = pd.read_csv(csv_path)
@@ -83,11 +83,11 @@ def load_db2_metadata(csv_path):
                 'gender': is_male
             }
             
-        print(f"  Metadata loaded from CSV ({len(metadata)} subjects total)")
+        print(f"  已从 CSV 加载元数据（共 {len(metadata)} 名被试）")
         return metadata
         
     except Exception as e:
-        print(f"  Warning: cannot load metadata ({e}), using defaults")
+        print(f"  警告：无法加载元数据（{e}），将使用默认值")
         return None
 
 
@@ -104,16 +104,17 @@ def prepare_data_db2(data_loader, subject_ids, config, exercises=[1]):
     """
     DB2 专用预处理流水线
 
-    流程: Raw EMG (2000Hz) -> Bandpass -> Rectify -> Envelope -> μ-law -> Downsample -> Normalize -> Segment
+    流程：原始 EMG（2000 Hz）-> 带通滤波 -> 整流 -> 包络提取 -> μ-law 压缩
+          -> 下采样 -> 归一化 -> 分段
 
-    Returns:
+    返回：
         (segments, subject_ids_array, repetitions_array)
     """
     all_segments = []
     all_subject_ids = []
     all_repetitions = []
     downsample_factor = int(config['orig_fs'] / config['target_fs'])
-    print(f"\n[DB2 Data Prep] {config['orig_fs']}Hz -> {config['target_fs']}Hz")
+    print(f"\n[DB2 数据准备] {config['orig_fs']} Hz -> {config['target_fs']} Hz")
 
     for subject_id in subject_ids:
         try:
@@ -204,13 +205,13 @@ def prepare_data_db2(data_loader, subject_ids, config, exercises=[1]):
                 
                 n_trans = len(transition_segments)
                 trans_pct = n_trans / (n_active + n_trans) * 100 if (n_active + n_trans) > 0 else 0
-                print(f"  S{subject_id:02d}: {len(segments)} segs (active:{n_active} + trans:{n_trans}, {trans_pct:.1f}%)")
+                print(f"  S{subject_id:02d}：{len(segments)} 个片段（动作：{n_active} + 过渡：{n_trans}，{trans_pct:.1f}%）")
         except Exception as exc:
-            print(f"  S{subject_id}: FAILED - {exc}")
+            print(f"  S{subject_id}：失败 - {exc}")
             continue
 
     if not all_segments:
-        raise ValueError("No valid data")
+        raise ValueError("没有有效数据")
 
     segments_concat = np.concatenate(all_segments)
     subject_ids_array = np.array(all_subject_ids, dtype=np.int32)
@@ -222,7 +223,7 @@ def load_and_cache_data(data_loader, subject_ids, config, cache_file, force_relo
     """
     加载并缓存数据
 
-    Returns:
+    返回值：
         dict: {'data': ndarray, 'subject_ids': ndarray, 'repetitions': ndarray}
     """
     cache_path = Path(cache_file)
@@ -234,7 +235,7 @@ def load_and_cache_data(data_loader, subject_ids, config, cache_file, force_relo
         snapshot = cached_data.get('config_snapshot', {}) if isinstance(cached_data, dict) else {}
         cached_sids = snapshot.get('subject_ids', None)
         if cached_sids is not None and sorted(list(cached_sids)) != sorted(list(subject_ids)):
-            print(f"\n[Processing] Cache subject mismatch, rebuilding...")
+            print(f"\n[处理中] 缓存中的被试与当前请求不一致，正在重建...")
         else:
             if isinstance(cached_data, dict):
                 data = cached_data.get('data')
@@ -250,14 +251,14 @@ def load_and_cache_data(data_loader, subject_ids, config, cache_file, force_relo
                 cached_subject_ids = None
                 cached_repetitions = np.zeros(len(data), dtype=np.int32)
                 
-            print(f"\n[Cache] Loaded {data.shape if hasattr(data, 'shape') else len(data)} from: {Path(cache_file).name}")
+            print(f"\n[缓存] 已从 {Path(cache_file).name} 加载 {data.shape if hasattr(data, 'shape') else len(data)}")
             return {
                 'data': data,
                 'subject_ids': cached_subject_ids,
                 'repetitions': cached_repetitions
             }
     
-    print(f"\n[Processing] Building data from scratch...")
+    print(f"\n[处理中] 正在从头构建数据...")
     data, subject_ids_array, repetitions_array = prepare_data_db2(data_loader, subject_ids, config)
     
     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -273,7 +274,7 @@ def load_and_cache_data(data_loader, subject_ids, config, cache_file, force_relo
             'subject_ids': subject_ids
         }
     }, cache_file)
-    print(f"  Cached to: {cache_file}")
+    print(f"  已缓存至：{cache_file}")
     return {
         'data': data,
         'subject_ids': subject_ids_array,

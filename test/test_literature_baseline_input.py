@@ -1,4 +1,4 @@
-"""Formula-level checks for SGMD-AAE paper-format input preparation."""
+"""SGMD-AAE 论文格式输入准备的公式级检查。"""
 from __future__ import annotations
 
 import sys

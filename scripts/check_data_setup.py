@@ -1,4 +1,4 @@
-"""Bounded real-data setup check; does not create a run or train full experiments."""
+"""有界真实数据环境检查；不创建 run，也不训练完整实验。"""
 from pathlib import Path
 import importlib.util
 import json
@@ -52,7 +52,7 @@ def main():
     metadata = load_db2_metadata(metadata_path)
     assert metadata and set(subjects) <= metadata.keys()
     report['required_mat_files'] = len(required)
-    print(f'Validated {len(required)} configured MAT files and metadata', flush=True)
+    print(f'已验证 {len(required)} 个已配置的 MAT 文件及元数据', flush=True)
     modules = {}
     for index, filename in enumerate(['01_train_mcia_db2_healthy_prior.py', '04_eval_db3_angle_raw_vs_augmented.py', '05_eval_db3_gesture_raw_vs_augmented.py', '06_adapt_amputee_donor_prior.py', 'run_all_experiments.py']):
         spec = importlib.util.spec_from_file_location(f'mcia_setup_stage_{index}', ROOT / 'scripts' / filename)
@@ -60,7 +60,7 @@ def main():
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
         modules[filename] = module
-        print(f'Imported {filename}', flush=True)
+        print(f'已导入 {filename}', flush=True)
     assert modules['run_all_experiments.py']._python_command(['probe.py'])[0] == sys.executable
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     report['device'] = torch.cuda.get_device_name(0) if device == 'cuda' else 'cpu'
@@ -76,7 +76,7 @@ def main():
         loss = train_mcia_epoch(model, torch.utils.data.DataLoader(EMGCompletionDataset(values[indices[:2]]), batch_size=2), optimizer, device, build_mask_generator(flat), build_structural_loss(flat, device), scenario='s3', domain_id=domain)
         assert np.isfinite(loss), loss
         report[name] = {'windows': len(values), 'one_batch_loss': loss}
-        print(f'{name}: one training batch OK, loss={loss:.6f}', flush=True)
+        print(f'{name}：一个训练批次运行正常，损失={loss:.6f}', flush=True)
     sid = cfg['exp3_regressor']['db3_subjects'][0]
     emg, angles, _, reps = prepare_kinematics_data(loader, [sid], flat, exercises=[1], db='db3')
     train, validation, test = make_rep_split(reps)
@@ -101,8 +101,8 @@ def main():
     report['gesture'] = {'windows': len(windows.emg), 'split_counts': [len(v) for v in split]}
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots()
-    ax.plot(emg[train[0], :, 0], label='real DB3 input')
-    ax.plot(enhanced[0, :, 0].cpu().numpy(), label='smoke model completion (untrained)')
+    ax.plot(emg[train[0], :, 0], label='真实 DB3 输入')
+    ax.plot(enhanced[0, :, 0].cpu().numpy(), label='冒烟模型补全（未训练）')
     ax.legend()
     fig.savefig(out / 'pipeline_smoke.png')
     plt.close(fig)

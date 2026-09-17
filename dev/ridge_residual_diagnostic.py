@@ -5,16 +5,16 @@ D-006/E-001/E-002）。只回答 D-006 阶梯的下一问：Ridge 残差是否�
 
 臂：
   A  Ridge                     —— dev/ridge_attribution.py 的全局全秩同时刻岭回归（import 复用）。
-  B  Ridge + causal residual   —— 线性头 W_L：输入当前及过去 L 个时刻的 ridge 预测、
+  B  Ridge + 因果残差          —— 线性头 W_L：输入当前及过去 L 个时刻的 ridge 预测、
                                   observed=clean*mask、mask（窗外历史零填充，fit/eval 一致），
                                   仅在 DB2 训练池人工掩码位置以逐通道精确正态方程拟合
                                   residual = clean - ridge（lambda=1e-3 相对正则，先验固定）。
                                   严格因果：时刻 t 只访问 t 及此前帧；无任何 clean 目标作输入。
-  L in {0, 8, 16, 32} 全部报告，不按结果挑选，不提升任何臂为正式候选。
+  L 属于 {0, 8, 16, 32}，全部报告，不按结果挑选，不提升任何臂为正式候选。
 
 口径：S29-S32 仅前向评估；冻结 ScenarioMix seed=20260910+subject_id（与 v1/v2 同掩码）；
-统一交付 clip -> patch 边界淡化 -> observed 回填；masked NRMSE（峰值 1）与 K_obs 分层。
-掩码生成、masked 指标、crossfade、配置均 import 主模块或既有 dev 脚本，未复制实现。
+统一交付：裁剪 -> 补丁边界淡化 -> 观测值回填；掩码区域 NRMSE（峰值 1）与 K_obs 分层。
+掩码生成、掩码区域指标、交叉淡化、配置均导入主模块或既有 dev 脚本，未复制实现。
 残差头拟合使用固定种子（20260910）预声明的 8000 训练窗随机子集（全池精确逐通道拟合
 计算量不可控；每通道约数十万掩码条目 vs 至多 1189 维特征，统计量充足）。
 """

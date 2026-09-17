@@ -1,16 +1,16 @@
 """
-单 Batch 过拟合自检（Sanity Overfit Test）
+单批次过拟合自检
 ============================================
 
-锁定 1 个 **固定** batch，关闭 dropout，反复训练 ~200 步，
+锁定 1 个 **固定** 批次，关闭随机失活，反复训练 ~200 步，
 验证模型能否在这批数据上做到极低 MSE（近乎记住）。
 
 为什么这个测试是黄金法则？
-  - 若数据流 / mask 逻辑 / 位置编码 / 梯度回传 任何一处底层 bug，
-    模型连一个 batch 都吃不下；
+  - 若数据流 / 掩码逻辑 / 位置编码 / 梯度回传 任何一处底层错误，
+    模型连一个批次都吃不下；
   - 通过之后，再跑全量才有意义。
 
-判定标准（默认全部 PASS 视作健康）：
+判定标准（默认全部通过视作健康）：
   - 总体 MSE         < 1e-4
   - 缺失区 MSE       < 1e-3
   - 已知区 MSE       < 1e-4
@@ -97,7 +97,7 @@ def main():
     # 允许命令行覆盖 steps / lr
     import argparse
     parser = argparse.ArgumentParser()
-    # 健康模型约在 step ~600 后 loss 跌破 1e-3，~1500 后跌破 1e-4；
+    # 健康模型约在 600 步后损失跌破 1e-3，1500 步后跌破 1e-4；
     # 2000 步保证收敛完备、PASS 稳定。
     parser.add_argument('--steps', type=int, default=2000)
     parser.add_argument('--lr', type=float, default=1e-3)
@@ -126,7 +126,7 @@ def main():
         n_layers=exp['n_layers'],
         n_heads=exp['n_heads'],
         ffn_dim=exp['ffn_dim'],
-        dropout=0.0,                                                   # 关 dropout → 允许记忆
+        dropout=0.0,                                                   # 关闭随机失活 → 允许记忆
     ).to(device)
     print(f'Model params: {sum(p.numel() for p in model.parameters()):,}')
 

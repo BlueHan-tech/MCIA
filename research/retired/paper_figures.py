@@ -1,22 +1,19 @@
 ﻿"""
-Legacy / pending redesign paper figure and table helpers.
+历史版本 / 待重新设计的论文图表辅助函数。
 
-This module reads real experiment outputs and renders the old paper-style
-figures/tables. It is no longer used by the default run_all pipeline or the
-default generate_figures_from_run rebuild flow.
+本模块读取真实实验产物并渲染旧版论文图表，已不用于默认 run_all 流水线
+或默认 generate_figures_from_run 重建流程。
 
-Current default mainline figures are:
-- 01 DB2 completion report;
-- 03 DB3 12ch completion figures;
-- 04 anatomy A/B angle figures.
+当前默认主链路图像包括：
+- 01 DB2 补全报告；
+- 03 DB3 12 通道补全图；
+- 04 解剖分组 A/B 角度图。
 
-This module intentionally mixes legacy rendering, table export, and metrics
-aggregation helpers. Do not delete the whole file before cleanup separates those
-responsibilities and verifies any remaining manual paper/table workflows.
+本模块有意保留混合的历史渲染、表格导出和指标聚合辅助函数。
+在清理时拆分职责并核验剩余手工论文图表流程之前，不得删除整个文件。
 
-Figure 1 architecture and Figure 5 transfer diagrams are manually drawn outside
-this module. Existing training visualizations are skipped by paper scripts unless
---force is used.
+图 1 的结构图与图 5 的迁移图在本模块之外手工绘制。
+论文脚本默认跳过已有训练可视化，除非使用 --force。
 """
 
 from __future__ import annotations
@@ -316,7 +313,7 @@ def plot_figure7_rule_detector(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# -- Figure 8: single fixed-Key10 trace --
+# -- 图 8：单个固定 Key10 通道的轨迹 --
 # ------------------------------------------------------------------------------
 
 def plot_figure8_angle_traces(
@@ -326,7 +323,7 @@ def plot_figure8_angle_traces(
     dim: int = 0,
     title: str = "",
 ) -> None:
-    """Plot the first window for one fixed Key10 channel."""
+    """绘制一个固定 Key10 通道的首个窗口。"""
     t = np.arange(target.shape[1])
     styles = {"A": ("#1f77b4", "Group A raw"),
               "B": ("#ff7f0e", GROUP_LABELS["B"])}

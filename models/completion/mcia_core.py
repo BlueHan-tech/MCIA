@@ -239,7 +239,7 @@ class GatedAxialBlock(nn.Module):
 class MCIA(nn.Module):
     """带轴向注意力的多通道补全（MCIA）。
 
-    每通道 N=32 个 patch token；通过门控轴向注意力实现多通道协同，无摘要池化。
+    每通道 N=32 个补丁标记；通过门控轴向注意力实现多通道协同，无摘要池化。
     """
 
     def __init__(
@@ -466,7 +466,7 @@ class MCIA_Wrapper:
         else:
             pred = model(x_clean_masked, drop_condition=False, **kwargs)
 
-        # Constrain completion after guidance, before copying observations back.
+        # 在引导后约束补全值，再复制回观测值。
         pred = pred.clamp(0.0, 1.0)
         if raw_time_mask is not None:
             return pred * (1.0 - raw_time_mask) + x_clean_masked * raw_time_mask

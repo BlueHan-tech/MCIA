@@ -1,49 +1,47 @@
-"""DB3 two-layer quality masks: hard dropouts plus WC-BQD (2026-09-10 adopted).
+"""DB3 双层质量掩码：硬掉线与 WC-BQD 的并集（2026-09-10 采用）。
 
-Layer 1 (hard zero): channels that are exactly zero across all train-repetition
-(1/3/4) active samples are dropped for the whole recording.
+第一层（硬零）：若某通道在训练 repetition（1/3/4）的全部动作采样点上严格为零，
+则在整段记录中丢弃该通道。
 
-Layer 2 (WC-BQD, within-channel baseline quality detector): each channel-second
-is judged only against that channel's own train-repetition baseline (bottom-up,
-per-contaminant).  It replaced the Grönlund (2005) MQP cross-channel outlier
-layer, which confused normal inter-channel amplitude differences (agonist
-activation, quiet upper-arm electrodes) with poor contact: healthy-DB2 floor
-14.5% at p>0.20, per-channel flag rate vs channel RMS Pearson 0.95.
+第二层（WC-BQD，通道内基线质量检测器）：每个“通道-秒”只与该通道自身在训练
+repetition 上的基线比较，并按污染类型自底向上判定。它取代了 Grönlund（2005）
+MQP 的跨通道离群层；后者会把正常的通道间幅值差异（主动肌激活、安静的上臂
+电极）误判为接触不良：健康 DB2 的误报下限为 14.5%（p>0.20），逐通道标记率
+与通道 RMS 的 Pearson 相关系数为 0.95。
 
-Tests (constants pre-declared during 2026-09-09/10 validation):
-  T1 plateau  >=10 identical samples at the second's P99.5 amplitude extremes
-               (clipping/saturation) OR >=100 identical samples (50 ms flatline
-               dropout); amplitude gate exempts benign quantization duplicates.
-  T2 low energy  log-RMS robust z < -3.5 vs the channel's own train-repetition
-               distribution (electrode fell off / dead segment).
-  T3 burst       robust z > 5.0 AND >=80% of the second's power below 20 Hz
-               (motion-artifact band; genuine contraction is broadband).
+检测项（常量在 2026-09-09/10 验证期间预先声明）：
+  T1 平台：该秒 P99.5 幅值极端处出现不少于 10 个相同采样点（裁剪/饱和），或
+           出现不少于 100 个相同采样点（50 ms 平直掉线）；幅值门可豁免无害的
+           量化重复值。
+  T2 低能量：相对该通道训练 repetition 分布，log-RMS 的稳健 z 值小于 -3.5
+           （电极脱落/失活片段）。
+  T3 突发：稳健 z 值大于 5.0，且该秒至少 80% 的功率低于 20 Hz（运动伪迹频带；
+           真实肌肉收缩为宽带信号）。
 
-Literature anchors: bottom-up strategy and contaminant taxonomy - Farago et al.
-2023 (IEEE Rev Biomed Eng); within-channel baseline thresholds - Hodges & Bui
-1996 (Electroencephalogr Clin Neurophysiol 101:511-519) and the 2023 onset
-detection review (J Neuroeng Rehabil 20); <20 Hz motion-artifact band - De Luca
-et al. 2010 (J Biomech 43:157-163); median/MAD robust z and the 3.5 rule -
-Leys et al. 2013 (J Exp Soc Psychol 49:764-766).
+文献依据：Farago 等（2023，IEEE Rev Biomed Eng）的自底向上策略与污染类型；
+Hodges 和 Bui（1996，Electroencephalogr Clin Neurophysiol 101:511-519）及 2023 年
+起始检测综述（J Neuroeng Rehabil 20）的通道内基线阈值；De Luca 等（2010，
+J Biomech 43:157-163）的低于 20 Hz 运动伪迹频带；Leys 等（2013，J Exp Soc
+Psychol 49:764-766）的中位数/MAD 稳健 z 值与 3.5 规则。
 
-Validation summary (run 06_diagnostics/wcbqd_validation_20260909): healthy
-held-out floor 0.15%/0.09% (S01-S10/S11-S20), activation-tracking Pearson
-indistinguishable from 0, DB3 held-out flag rate 4.82% (MQP reference 18.58%),
-per-subject hard-zero consistency 100% (S06/S07 Ch9/Ch10), downstream S05 dev
-A/B: B-vs-A RMSE gap +4.15% -> +0.30%.
+验证摘要（run 06_diagnostics/wcbqd_validation_20260909）：健康留出集误报下限为
+0.15%/0.09%（S01-S10/S11-S20）；对激活水平的跟踪相关与 0 无显著差别；DB3
+留出集标记率为 4.82%（MQP 参照为 18.58%）；逐被试硬零一致性为 100%
+（S06/S07 的 Ch9/Ch10）；下游 S05 开发 A/B 中，B 相对 A 的 RMSE 差距由
++4.15% 缩小至 +0.30%。
 """
 from __future__ import annotations
 
 import numpy as np
 
-# ---- pre-declared WC-BQD constants (see module docstring) ----
+# ---- 预先声明的 WC-BQD 常量（见模块说明）----
 KAPPA_LOW = 3.5
 KAPPA_HIGH = 5.0
 LOW_FREQ_HZ = 20.0
 POWER_FRAC = 0.80
-PLATEAU_RUN = 10          # short plateau counts only at amplitude extremes
-PLATEAU_HARD = 100        # 50 ms flatline counts regardless of amplitude
-PLATEAU_DEV_PCTL = 99.5   # amplitude-extreme gate within the second
+PLATEAU_RUN = 10          # 短平台仅在幅值极端处计入
+PLATEAU_HARD = 100        # 不论幅值如何，50 ms 平直段均计入
+PLATEAU_DEV_PCTL = 99.5   # 单秒内的幅值极端门限
 TRAIN_REPS = (1, 3, 4)
 LOG_EPS = 1e-12
 MAD_FLOOR = 1e-3
@@ -57,7 +55,7 @@ def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
 
 
 def _plateau_stats(sec: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Per channel: longest identical-value run (in SAMPLES) and its value.
+    """逐通道返回最长相同值连续段的采样点数及其取值。
 
     L 个相同采样点产生 L-1 对相等标记；此处返回 ends-starts+1，使计数
     语义与文档一致（PLATEAU_HARD=100 即 100 个采样点 = 50 ms）。
@@ -80,7 +78,7 @@ def _plateau_stats(sec: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def second_features(sec: np.ndarray) -> dict:
-    """Per-second per-channel features and the baseline-free T1 verdict."""
+    """返回逐秒、逐通道特征以及无需基线的 T1 判定。"""
     x = sec - sec.mean(axis=0, keepdims=True)
     rms = np.sqrt((x ** 2).mean(axis=0))
     logrms = np.log(np.maximum(rms, LOG_EPS))
@@ -113,13 +111,12 @@ def _wcbqd_flags(feats: dict, med: np.ndarray, mad: np.ndarray) -> np.ndarray:
 
 def db3_quality_mask(raw: np.ndarray, labels: np.ndarray, repetitions: np.ndarray,
                      target_fs: int, action_ids: tuple[int, ...] = tuple(range(1, 49))) -> tuple[np.ndarray, dict]:
-    """Return a 200-Hz keep mask and auditable two-layer mask metadata.
+    """返回 200 Hz 保留掩码和可审计的双层掩码元数据。
 
-    Hard channels are fitted only from train repetitions 1/3/4.  WC-BQD
-    baselines are likewise fitted from train-repetition active seconds and
-    evaluated independently on every active second.  If a subject has fewer
-    than MIN_TRAIN_SECONDS train seconds, T2/T3 are skipped (baseline-free T1
-    still applies) and the metadata records the fallback.
+    硬掉线通道仅根据训练 repetition 1/3/4 拟合。WC-BQD 基线同样只由训练
+    repetition 的动作秒拟合，并在每个动作秒上独立评估。若某被试的训练数据少于
+    MIN_TRAIN_SECONDS 秒，则跳过 T2/T3（仍应用无需基线的 T1），并在元数据中记录
+    回退原因。
     """
     raw = np.asarray(raw, dtype=np.float64)
     labels = np.asarray(labels).reshape(-1)
@@ -133,7 +130,7 @@ def db3_quality_mask(raw: np.ndarray, labels: np.ndarray, repetitions: np.ndarra
     raw_keep[:, hard] = False
     centered = raw - raw.mean(axis=0, keepdims=True)
 
-    seconds = []          # (cursor, is_train, features)
+    seconds = []          # （游标、是否训练数据、特征）
     for start, end in _runs(valid_action):
         for cursor in range(start, end - 2000 + 1, 2000):
             if np.all(repetitions[cursor:cursor + 2000] == repetitions[cursor]):
@@ -148,8 +145,8 @@ def db3_quality_mask(raw: np.ndarray, labels: np.ndarray, repetitions: np.ndarra
     if len(logrms_train) >= MIN_TRAIN_SECONDS:
         baselines = _fit_baselines(np.stack(logrms_train))
     else:
-        fallback = (f"only {len(logrms_train)} train seconds; "
-                    "T2/T3 skipped, baseline-free T1 only")
+        fallback = (f"仅有 {len(logrms_train)} 个训练秒；"
+                    "已跳过 T2/T3，仅使用无需基线的 T1")
 
     t_counts = {"t1": 0, "t2_t3": 0}
     for cursor, _, feats in seconds:

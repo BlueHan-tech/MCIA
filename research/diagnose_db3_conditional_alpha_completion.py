@@ -1,4 +1,4 @@
-"""No-leak S05 development screen for conditional MCIA replacement strength."""
+"""条件化 MCIA 替换强度的无泄漏 S05 开发筛查。"""
 from __future__ import annotations
 
 import argparse

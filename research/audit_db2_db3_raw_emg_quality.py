@@ -1,7 +1,7 @@
-"""Read-only 2 kHz sEMG quality comparison for matched DB2/DB3 actions.
+"""匹配 DB2/DB3 动作的 2 kHz sEMG 质量只读比较。
 
-The script treats DB2 as a reference distribution, not as an absolute amplitude
-threshold for DB3.  It never trains a model, invokes MCIA, or changes data.
+脚本把 DB2 作为参照分布，而非 DB3 的绝对幅值阈值。不训练模型、不调用 MCIA，
+也不修改数据。
 """
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def _load_raw(root: Path, db: str, subject_id: int, exercise: int) -> tuple[np.n
 
 
 def _action_epochs(labels: np.ndarray, epoch_samples: int) -> tuple[np.ndarray, np.ndarray]:
-    """Return full, non-overlapping action-only epoch starts and movement IDs."""
+    """返回完整、互不重叠且仅含动作的区段起点及动作编号。"""
     starts: list[int] = []
     actions: list[int] = []
     padded = np.concatenate(([-1], labels.astype(np.int64), [-1]))
@@ -170,13 +170,13 @@ def _candidate_rows(subject_id: int, features: dict, reference: dict, epoch_samp
     log_rms = np.log(features["rms"] + 1e-12)
     rms_self_z = _within_action_z(log_rms, actions)
 
-    # A spectral artifact must be an outlier both relative to the matched DB2
-    # movement and relative to the DB3 subject's own instances of that movement.
+    # 频谱伪迹必须同时偏离匹配的 DB2 动作分布
+    # 以及该 DB3 被试自身同一动作的分布。
     low_candidate = (low_db2_z > 3.5) & (low_self_z > 3.5)
     line_candidate = (line_db2_z > 3.5) & (line_self_z > 3.5)
 
-    # A contact-change candidate requires an abrupt amplitude change plus a
-    # simultaneous low-frequency outlier. Amplitude alone is not considered bad.
+    # 接触变化候选须同时出现幅值突变
+    # 和低频离群；仅幅值变化不视为质量差。
     previous_contiguous = np.zeros(n_epochs, dtype=bool)
     if n_epochs > 1:
         previous_contiguous[1:] = (
@@ -248,7 +248,7 @@ def _write_csv(path: Path, rows: list[dict]) -> None:
 
 
 def _true_runs(mask: np.ndarray, min_samples: int) -> list[tuple[int, int]]:
-    """Return inclusive/exclusive True runs with a minimum length."""
+    """返回达到最小长度的 True 连续段，区间左闭右开。"""
     padded = np.concatenate(([False], mask.astype(bool), [False]))
     changes = np.flatnonzero(np.diff(padded.astype(np.int8)) != 0)
     return [
@@ -268,7 +268,7 @@ def _dominant_action(labels: np.ndarray, start: int, stop: int) -> int:
 
 def _raw_integrity_scan(raw: np.ndarray, labels: np.ndarray, fs: int, domain: str,
                         subject_id: int, keep_events: bool) -> tuple[list[dict], list[dict]]:
-    """Find exact raw-sample failures without treating weak EMG as missing."""
+    """查找原始采样点中的明确故障，不把弱 EMG 当作缺失。"""
     n_samples, n_channels = raw.shape
     min_plateau = max(4, int(round(0.002 * fs)))
     min_hold = max(8, int(round(0.004 * fs)))

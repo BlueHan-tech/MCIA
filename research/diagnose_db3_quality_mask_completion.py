@@ -1,10 +1,9 @@
-"""Independent no-leakage test of short low-information EMG patch completion.
+"""短时低信息 EMG 补丁补全的独立无泄漏测试。
 
-This is not part of Exp1/Exp2/Exp3.  The detector learns per-channel patch
-thresholds from DB3 training repetitions only, then applies the fixed rule to
-train/validation/test EMG without looking at glove or angle targets.  It
-compares raw EMG against the same masked-patch MCIA completion path using the
-same Key10 KinematicTCN and repetition split.
+本测试不属于实验一、二、三。检测器仅从 DB3 训练重复 学习逐通道补丁
+阈值，再将固定规则应用于训练/验证/测试 EMG，不读取手套信号 或角度目标。
+使用相同 Key10 KinematicTCN 和重复划分，比较原始 EMG 与同一掩码补丁
+MCIA 补全路径。
 """
 from __future__ import annotations
 
@@ -40,7 +39,7 @@ def _load_exp3_module():
 
 
 class LowInformationPatchDetector:
-    """EMG-only detector for locally weak and locally flat short patches."""
+    """仅依赖 EMG，检测局部弱信号和局部平直的短 patch。"""
 
     def __init__(self, patch_size: int, quantile: float):
         self.patch_size = int(patch_size)

@@ -1,18 +1,18 @@
-"""补全质量可视化体检（Completion Quality Visualization）
+"""补全质量可视化体检
 
 提供一套"不用和旧模型 A/B，也能一眼看出补全好坏"的可视化组件：
 
-- plot_completion_panel     : 单样本 12 通道"clean / masked / reconstructed"对比
-                              + RMS 包络 + 分区（masked/known/whole）指标 + mask 高亮
+- plot_completion_panel     : 单样本 12 通道“干净信号 / 遮挡信号 / 重建信号”对比
+                              + RMS 包络 + 分区（缺失/已知/全序列）指标 + 掩码高亮
 - plot_error_heatmap        : (时间, 通道) 误差热图，直观定位补全失败位置
-- plot_metric_bars          : 指标柱状图（masked vs known vs whole）
-- plot_spectrogram_compare  : 频谱图对比（clean vs reconstructed）
-- plot_failure_gallery      : Top-K 最差样本画廊（按 masked-MSE 排序）
+- plot_metric_bars          : 指标柱状图（缺失区、已知区与全序列对比）
+- plot_spectrogram_compare  : 频谱图对比（干净信号与重建信号）
+- plot_failure_gallery      : 前 K 个最差样本画廊（按缺失区域 MSE 排序）
 - plot_whole_channel_gallery: 专门挑「整通道缺失」样本展示协同补全效果
 - plot_difficulty_matrix    : 5 个难度 × 指标的矩阵图（看「越难越烂」情况）
 - save_training_epoch_snapshot : 训练期快照（插入训练循环）
 - build_report              : 把以上全部打包到 output_dir + 生成 REPORT.md
-- build_db3_inference_report: 对 DB3 补全结果 (.npz) 做 before/after 可视化报告
+- build_db3_inference_report: 对 DB3 补全结果 (.npz) 做补全前后可视化报告
 - plot_training_history_film_norms: 从 ``training_history.json`` 绘制 FiLM/add 范数曲线
 
 所有指标分三区计算：
@@ -67,7 +67,7 @@ def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def _missing_spans(missing: np.ndarray) -> List[Tuple[int, int]]:
-    """Return contiguous [start, end) spans for a 1D missing mask."""
+    """返回一维缺失掩码中的连续 [start, end) 区间。"""
     missing = np.asarray(missing, dtype=bool).reshape(-1)
     if missing.size == 0 or not missing.any():
         return []
@@ -78,7 +78,7 @@ def _missing_spans(missing: np.ndarray) -> List[Tuple[int, int]]:
 
 
 def _shade_missing_background(ax, missing: np.ndarray, color: str, alpha: float) -> None:
-    """Shade simple contiguous missing intervals using axvspan."""
+    """使用 axvspan 为连续缺失区间添加简洁底色。"""
     for start, end in _missing_spans(missing):
         ax.axvspan(start - 0.5, end - 0.5, color=color, alpha=alpha,
                    linewidth=0, zorder=0)
@@ -204,7 +204,7 @@ def _collect_dataloader_samples(dataloader, device, max_samples: int) -> Dict:
 # ---------------------------------------------------------------------
 
 def _visible_signal_ylim(signals: List[np.ndarray], pad_ratio: float = 0.08) -> Optional[tuple]:
-    """Return y-limits from signals that are actually drawn on the main axis."""
+    """根据主坐标轴上实际绘制的信号确定纵轴范围。"""
     finite_parts = []
     for sig in signals:
         arr = np.asarray(sig, dtype=float).reshape(-1)
@@ -234,9 +234,9 @@ def plot_completion_panel(
     show_envelope: bool = True,
     envelope_win: int = 16,
     baselines: Optional[Dict[str, np.ndarray]] = None,
-    clean_label: str = 'Ground Truth',
-    completed_label: str = 'MCIA Model',
-    observed_label: str = 'Observed',
+    clean_label: str = '真实值',
+    completed_label: str = 'MCIA 模型',
+    observed_label: str = '观测值',
     clean_color: str = '#2ca02c',
     completed_color: str = '#d62728',
     observed_color: str = '#1f77b4',
@@ -251,8 +251,8 @@ def plot_completion_panel(
     """单样本 12 通道对比图。
 
     emg_clean / emg_completed / mask : (T, C)；mask：1=已知，0=缺失
-    baselines : optional {'method': (T, C) completed signal}. Curves are drawn only
-                when show_baselines=True, so hidden baselines do not affect y-limits.
+    baselines：可选的 {'方法': (T, C) 补全信号}。仅当 show_baselines=True 时绘制，
+               因此隐藏的基线不会影响纵轴范围。
     """
     T, C = emg_clean.shape
     metrics = compute_region_metrics(emg_completed, emg_clean, mask)
@@ -270,10 +270,10 @@ def plot_completion_panel(
     header_ax = fig.add_subplot(gs[0, :])
     header_ax.axis('off')
     hdr = header_text or (
-        f"mask ratio: {metrics['mask_ratio']*100:.1f}%    "
-        f"MSE(masked/known/whole): {metrics['mse_masked']:.4f} / "
+        f"掩码比例：{metrics['mask_ratio']*100:.1f}%    "
+        f"MSE（缺失/已知/整体）：{metrics['mse_masked']:.4f} / "
         f"{metrics['mse_known']:.4f} / {metrics['mse_whole']:.4f}    "
-        f"Corr(masked/whole): {metrics['corr_masked']:.3f} / {metrics['corr_whole']:.3f}"
+        f"相关系数（缺失/整体）：{metrics['corr_masked']:.3f} / {metrics['corr_whole']:.3f}"
     )
     header_ax.text(0.5, 0.5, hdr, ha='center', va='center', fontsize=13,
                    fontweight='bold',
@@ -326,18 +326,18 @@ def plot_completion_panel(
 
         mr = (mask[:, ch] < 0.5).mean()
         if mr >= 0.99:
-            status, color = f'CH-MISS ({mr*100:.0f}%)', '#b71c1c'
+            status, color = f'整通道缺失（{mr*100:.0f}%）', '#b71c1c'
         elif mr > 0.5:
-            status, color = f'Heavy {mr*100:.0f}%', '#e65100'
+            status, color = f'重度缺失 {mr*100:.0f}%', '#e65100'
         elif mr > 0.05:
-            status, color = f'Partial {mr*100:.0f}%', '#ef6c00'
+            status, color = f'部分缺失 {mr*100:.0f}%', '#ef6c00'
         else:
-            status, color = 'Intact', '#2e7d32'
+            status, color = '完整', '#2e7d32'
 
         m = mask[:, ch] < 0.5
         mse_m = float(((emg_completed[m, ch] - emg_clean[m, ch]) ** 2).mean()) if m.sum() > 0 else float('nan')
         corr_w = _safe_corr(emg_completed[:, ch], emg_clean[:, ch])
-        ax.set_title(f'Ch{ch+1} [{status}] | MSE_mask={mse_m:.4f} | Corr={corr_w:.3f}',
+        ax.set_title(f'通道 {ch+1} [{status}] | 缺失区 MSE={mse_m:.4f} | 相关系数={corr_w:.3f}',
                      fontsize=10.5, fontweight='bold', color=color)
         ax.grid(True, alpha=0.25)
         if ch == 0:
@@ -370,14 +370,14 @@ def plot_error_heatmap(emg_clean: np.ndarray, emg_completed: np.ndarray,
     ax.imshow(miss_overlay, aspect='auto', origin='lower',
               cmap='Blues', alpha=0.18)
 
-    ax.set_xlabel('Time (samples)')
-    ax.set_ylabel('Channel')
+    ax.set_xlabel('时间（采样点）')
+    ax.set_ylabel('通道')
     ax.set_yticks(np.arange(C))
     ax.set_yticklabels([f'Ch{c+1}' for c in range(C)])
     if title:
         ax.set_title(title, fontsize=12, fontweight='bold')
     cbar = fig.colorbar(im, ax=ax)
-    cbar.set_label('|pred - gt|')
+    cbar.set_label('|预测值 - 真实值|')
     save_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(save_path, dpi=140, bbox_inches='tight')
     plt.close(fig)
@@ -388,7 +388,7 @@ def plot_error_heatmap(emg_clean: np.ndarray, emg_completed: np.ndarray,
 # ---------------------------------------------------------------------
 
 def plot_metric_bars(all_metrics: List[Dict[str, float]], save_path: Path,
-                     title: str = 'Region-wise Metrics'):
+                     title: str = '分区域指标'):
     """聚合 N 个样本的 {mse_masked, mse_known, mse_whole, corr_masked, corr_whole}。"""
     if not all_metrics:
         return
@@ -407,7 +407,7 @@ def plot_metric_bars(all_metrics: List[Dict[str, float]], save_path: Path,
     axes[0].bar(keys_mse, mse_means, yerr=mse_stds,
                 color=['#d62728', '#1f77b4', '#7f7f7f'], alpha=0.85,
                 capsize=6, edgecolor='black')
-    axes[0].set_title('MSE by region', fontsize=12, fontweight='bold')
+    axes[0].set_title('各区域 MSE', fontsize=12, fontweight='bold')
     axes[0].set_ylabel('MSE')
     axes[0].grid(True, axis='y', alpha=0.3)
     for i, (m_val, s_val) in enumerate(zip(mse_means, mse_stds)):
@@ -418,8 +418,8 @@ def plot_metric_bars(all_metrics: List[Dict[str, float]], save_path: Path,
     axes[1].bar(keys_corr, corr_means, yerr=corr_stds,
                 color=['#2ca02c', '#ff7f0e'], alpha=0.85,
                 capsize=6, edgecolor='black')
-    axes[1].set_title('Pearson correlation by region', fontsize=12, fontweight='bold')
-    axes[1].set_ylabel('Pearson r')
+    axes[1].set_title('各区域 Pearson 相关系数', fontsize=12, fontweight='bold')
+    axes[1].set_ylabel('Pearson 相关系数 r')
     axes[1].set_ylim(-0.05, 1.05)
     axes[1].grid(True, axis='y', alpha=0.3)
     for i, (m_val, s_val) in enumerate(zip(corr_means, corr_stds)):
@@ -466,15 +466,15 @@ def plot_spectrogram_compare(emg_clean: np.ndarray, emg_completed: np.ndarray,
 
         vmax = max(S_g.max(), S_p.max())
         axes[i, 0].pcolormesh(t_g, f_g, S_g, shading='gouraud', vmin=0, vmax=vmax, cmap='viridis')
-        axes[i, 0].set_title(f'Ch{ch+1} clean', fontsize=10, fontweight='bold')
-        axes[i, 0].set_ylabel('freq (norm)')
+        axes[i, 0].set_title(f'通道 {ch+1} 真实值', fontsize=10, fontweight='bold')
+        axes[i, 0].set_ylabel('归一化频率')
         axes[i, 1].pcolormesh(t_p, f_p, S_p, shading='gouraud', vmin=0, vmax=vmax, cmap='viridis')
-        axes[i, 1].set_title(f'Ch{ch+1} reconstructed', fontsize=10, fontweight='bold')
+        axes[i, 1].set_title(f'通道 {ch+1} 重建值', fontsize=10, fontweight='bold')
         axes[i, 2].pcolormesh(t_g, f_g, S_d, shading='gouraud', cmap='magma')
-        axes[i, 2].set_title(f'Ch{ch+1} |log-spec diff|', fontsize=10, fontweight='bold')
+        axes[i, 2].set_title(f'通道 {ch+1} |对数频谱差|', fontsize=10, fontweight='bold')
 
     for ax in axes[-1, :]:
-        ax.set_xlabel('time (norm)')
+        ax.set_xlabel('归一化时间')
     if title:
         fig.suptitle(title, fontsize=13, fontweight='bold')
     fig.tight_layout()
@@ -499,7 +499,7 @@ def plot_failure_gallery(emg_clean: np.ndarray, emg_completed: np.ndarray,
         plot_completion_panel(
             emg_clean[idx], emg_completed[idx], mask[idx],
             save_path=save_dir / f'{tag}_rank{rank+1:02d}_idx{idx}.png',
-            title=f'{tag.upper()} rank {rank+1}  metric={metric_per_sample[idx]:.4f}',
+            title=f'{tag.upper()} 排名 {rank+1}  指标={metric_per_sample[idx]:.4f}',
             **panel_kwargs,
         )
 
@@ -521,8 +521,8 @@ def plot_whole_channel_gallery(emg_clean: np.ndarray, emg_completed: np.ndarray,
         plot_completion_panel(
             emg_clean[idx], emg_completed[idx], mask[idx],
             save_path=save_dir / f'whole_ch_rank{rank+1:02d}_idx{idx}.png',
-            title=f'Whole-channel missing sample  #{rank+1}  '
-                  f'(ch_missing={ch_missing_count[idx]})',
+            title=f'整通道缺失样本 #{rank+1}  '
+                  f'（缺失通道数={ch_missing_count[idx]}）',
             **panel_kwargs,
         )
 
@@ -532,7 +532,7 @@ def plot_whole_channel_gallery(emg_clean: np.ndarray, emg_completed: np.ndarray,
 # ---------------------------------------------------------------------
 
 def plot_difficulty_matrix(level2metrics: Dict[float, Dict[str, float]],
-                           save_path: Path, title: str = 'Difficulty x Metric'):
+                           save_path: Path, title: str = '难度 × 指标'):
     """level2metrics: {difficulty: {'mse_masked':..., 'corr_masked':...}} → 矩阵图。"""
     if not level2metrics:
         return
@@ -615,7 +615,7 @@ def save_training_epoch_snapshot(model, val_loader, device, mask_gen,
         completed[0].cpu().numpy(),
         mask[0].cpu().numpy(),
         save_path=Path(save_path),
-        title=f'Epoch {epoch} | val_loss={val_loss:.5f} | {cfg_tag}',
+        title=f'轮次 {epoch} | 验证损失={val_loss:.5f} | {cfg_tag}',
     )
 
 
@@ -662,7 +662,7 @@ def _aggregate(per_sample: List[Dict[str, float]]) -> Dict[str, float]:
 
 
 def _plot_scenario_matrix(scn2metrics: Dict[str, Dict[str, float]],
-                          save_path: Path, title: str = 'Scenario x Metric'):
+                          save_path: Path, title: str = '场景 × 指标'):
     """scn2metrics: {scenario: {'mse_masked':..., 'corr_masked':...}} → 矩阵图。"""
     if not scn2metrics:
         return
@@ -696,7 +696,7 @@ def _plot_scenario_matrix(scn2metrics: Dict[str, Dict[str, float]],
 
 def _plot_per_channel_corr(per_sample: List[Dict[str, float]],
                            clean_arr: np.ndarray, comp_arr: np.ndarray, mask_arr: np.ndarray,
-                           save_path: Path, title: str = 'Per-channel corr_masked'):
+                           save_path: Path, title: str = '逐通道缺失区相关系数'):
     """逐通道计算 corr_masked 的分布（均值 + std）并画条形图，快速暴露薄弱通道。"""
     if clean_arr.shape[0] == 0:
         return
@@ -723,7 +723,7 @@ def _plot_per_channel_corr(per_sample: List[Dict[str, float]],
     ax.axhline(0, color='grey', linewidth=0.8)
     ax.set_xticks(xs)
     ax.set_xticklabels([f'Ch{i+1}' for i in range(C)], rotation=0)
-    ax.set_ylabel('corr_masked')
+    ax.set_ylabel('缺失区相关系数')
     ax.set_title(title)
     ax.grid(True, alpha=0.3, axis='y')
     save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -734,7 +734,7 @@ def _plot_per_channel_corr(per_sample: List[Dict[str, float]],
 def plot_training_history_film_norms(
     history_path,
     save_path: Optional[Path] = None,
-    title: str = 'MCIA weight norms (training_history.json)',
+    title: str = 'MCIA 权重范数（training_history.json）',
 ) -> Optional[Path]:
     '''从 training_history.json 绘制模型范数曲线。'''
     history_path = Path(history_path)
@@ -765,8 +765,8 @@ def plot_training_history_film_norms(
     fig, ax = plt.subplots(figsize=(9, 4.2))
     for _key, color, label, y in rows:
         ax.plot(xs, y[:n], color=color, lw=1.8, label=label)
-    ax.set_xlabel('epoch')
-    ax.set_ylabel('L2 norm of weights')
+    ax.set_xlabel('训练轮次')
+    ax.set_ylabel('权重的 L2 范数')
     ax.set_title(title)
     ax.grid(True, alpha=0.3)
     ax.legend(loc='best', fontsize=8)
@@ -783,7 +783,7 @@ def build_report(
     scenarios: Optional[List[str]] = None,
     main_scenario: str = 's1',
     guidance_scale: float = 0.0,
-    title: str = 'MCIA Completion Report',
+    title: str = 'MCIA 补全报告',
     baseline_fns: Optional[Dict[str, callable]] = None,
     panel_kwargs: Optional[Dict] = None,
 ) -> Path:
@@ -805,7 +805,7 @@ def build_report(
 
     samples = _collect_dataloader_samples(dataloader, device, max_samples=num_samples)
     if samples['data'] is None:
-        raise RuntimeError('No samples collected from dataloader')
+        raise RuntimeError('未从 dataloader 收集到样本')
 
     # ---- 1. 主口径（scenario=main_scenario 或 最难 D）= 失败画廊 / 热图 / 面板 ----
     if use_scenarios:
@@ -831,11 +831,11 @@ def build_report(
     worst_idx = int(np.argmax(metric_for_rank))
     plot_error_heatmap(clean_h[worst_idx], comp_h[worst_idx], mask_h[worst_idx],
                        save_path=output_dir / 'error_heatmap_worst.png',
-                       title=f'Error Heatmap (worst sample, idx={worst_idx})')
+                       title=f'误差热图（最差样本，索引={worst_idx}）')
     plot_spectrogram_compare(clean_h[worst_idx], comp_h[worst_idx], mask_h[worst_idx],
                              save_path=output_dir / 'spectrogram_worst.png',
                              n_fft=stft_n_fft,
-                             title=f'Spectrogram compare (idx={worst_idx})')
+                             title=f'频谱图对比（索引={worst_idx}）')
 
     plot_failure_gallery(clean_h, comp_h, mask_h, metric_for_rank,
                          save_dir=output_dir / 'failures', k=worst_k,
@@ -844,7 +844,7 @@ def build_report(
                                save_dir=output_dir / 'whole_channel', k=min(worst_k, 6),
                                panel_kwargs=panel_kwargs)
 
-    # 计算 baseline 补全结果（与主模型使用同一组 clean 样本 + 同一 mask）
+    # 计算基线补全结果（与主模型使用同一组干净样本和掩码）
     bl_completed: Dict[str, np.ndarray] = {}  # 方法名 → (N, T, C)
     if baseline_fns:
         emg_masked_np = clean_h * mask_h       # (N, T, C)  已知区保留，缺失区为0
@@ -854,7 +854,7 @@ def build_report(
                 # 回填已知区（保证公平比较）
                 bl_completed[bl_name] = bl_out * (1 - mask_h) + clean_h * mask_h
             except Exception as e:
-                print(f"  [viz] Baseline '{bl_name}' failed: {e}")
+                print(f"  [可视化] 基线“{bl_name}”失败：{e}")
 
     panels_dir = output_dir / 'panels'
     panels_dir.mkdir(parents=True, exist_ok=True)
@@ -868,14 +868,14 @@ def build_report(
         plot_completion_panel(
             clean_h[i], comp_h[i], mask_h[i],
             save_path=panels_dir / f'sample_{i:02d}.png',
-            title=f'Sample {i} | {main_tag}',
+            title=f'样本 {i} | {main_tag}',
             **sample_panel_kwargs,
         )
 
     # 逐通道相关系数
     _plot_per_channel_corr(per_sample_h, clean_h, comp_h, mask_h,
                            save_path=output_dir / 'per_channel_corr.png',
-                           title=f'Per-channel corr_masked ({main_tag})')
+                           title=f'逐通道缺失区相关系数（{main_tag}）')
 
     # ---- 2. 矩阵：按 scenario 或 difficulty ----
     if use_scenarios:
@@ -887,7 +887,7 @@ def build_report(
             )
             scn2agg[scn] = _aggregate(per_sample_scn)
         _plot_scenario_matrix(scn2agg, save_path=output_dir / 'scenario_matrix.png',
-                              title='Metric vs scenario')
+                              title='指标与场景的关系')
         axis_key = 'metrics_per_scenario'
         axis_dump = scn2agg
     else:
@@ -898,7 +898,7 @@ def build_report(
             )
             level2agg[lv] = _aggregate(per_sample_lv)
         plot_difficulty_matrix(level2agg, save_path=output_dir / 'difficulty_matrix.png',
-                               title='Metric vs difficulty')
+                               title='指标与难度的关系')
         axis_key = 'metrics_per_difficulty'
         axis_dump = {f'{lv:.2f}': vals for lv, vals in level2agg.items()}
 
@@ -940,7 +940,7 @@ def _render_report_markdown(title: str, metrics_dump: Dict) -> str:
 
     if mode == 'scenario_mix':
         lines.append('\n## 跨场景表现\n')
-        lines.append('| scenario | mse_masked | mse_whole | corr_masked | corr_whole | mask_ratio |')
+        lines.append('| 场景 | 缺失区 MSE | 整体 MSE | 缺失区相关系数 | 整体相关系数 | 掩码比例 |')
         lines.append('|---|---|---|---|---|---|')
         for scn, vals in metrics_dump.get('metrics_per_scenario', {}).items():
             lines.append(
@@ -953,7 +953,7 @@ def _render_report_markdown(title: str, metrics_dump: Dict) -> str:
         matrix_img = 'scenario_matrix.png'
     else:
         lines.append('\n## 跨难度表现\n')
-        lines.append('| difficulty | mse_masked | mse_whole | corr_masked | corr_whole |')
+        lines.append('| 难度 | 缺失区 MSE | 整体 MSE | 缺失区相关系数 | 整体相关系数 |')
         lines.append('|---|---|---|---|---|')
         for lv_str, vals in metrics_dump.get('metrics_per_difficulty', {}).items():
             try:
@@ -995,7 +995,7 @@ def build_db3_inference_report(completed_dir: Path, report_dir: Path,
 
     files = sorted(completed_dir.glob('db3_S*.npz'))
     if not files:
-        raise RuntimeError(f'No db3_S*.npz found in {completed_dir}')
+        raise RuntimeError(f'在 {completed_dir} 中未找到 db3_S*.npz')
 
     panels_dir = report_dir / 'panels'
     panels_dir.mkdir(parents=True, exist_ok=True)
@@ -1019,7 +1019,7 @@ def build_db3_inference_report(completed_dir: Path, report_dir: Path,
             plot_completion_panel(
                 clean_like, completed_like, m,
                 save_path=panels_dir / f'{fp.stem}_rank{rank+1:02d}.png',
-                title=f'{fp.stem} #{idx}  mask={miss_per_sample[idx]*100:.1f}%',
+                title=f'{fp.stem} #{idx}  掩码={miss_per_sample[idx]*100:.1f}%',
             )
             shown += 1
             if shown >= num_samples:
@@ -1037,8 +1037,8 @@ def build_db3_inference_report(completed_dir: Path, report_dir: Path,
         names = [s['subject'] for s in subject_stats]
         ratios = [s['mean_mask_ratio'] for s in subject_stats]
         ax.barh(names, ratios, color='#ef6c00', alpha=0.85, edgecolor='black')
-        ax.set_xlabel('mean mask ratio')
-        ax.set_title('DB3 per-subject anomaly mask ratio', fontsize=12, fontweight='bold')
+        ax.set_xlabel('平均掩码比例')
+        ax.set_title('DB3 逐被试异常掩码比例', fontsize=12, fontweight='bold')
         ax.grid(True, axis='x', alpha=0.3)
         for i, r in enumerate(ratios):
             ax.text(r, i, f' {r*100:.1f}%', va='center', fontsize=9)
@@ -1047,9 +1047,9 @@ def build_db3_inference_report(completed_dir: Path, report_dir: Path,
         plt.close(fig)
 
     # 生成 REPORT.md
-    lines = ['# DB3 MCIA Inference Report\n',
+    lines = ['# DB3 MCIA 推理报告\n',
              '## 被试概览\n',
-             '| subject | n_segments | mean_mask_ratio |',
+             '| 被试 | 片段数 | 平均掩码比例 |',
              '|---|---|---|']
     for s in subject_stats:
         lines.append(f'| `{s["subject"]}` | {s["n_segments"]} | {s["mean_mask_ratio"]*100:.2f}% |')
@@ -1068,23 +1068,18 @@ def build_db3_inference_report(completed_dir: Path, report_dir: Path,
 def plot_baseline_comparison(
     results: Dict[str, dict],
     output_dir: Path,
-    title: str = 'Baseline Comparison',
+    title: str = '基线比较',
 ) -> Path:
     """生成雷达图 + 箱线图，对比多个方法的指标。
 
-    Parameters
-    ----------
-    results : dict
-        key = 方法名（如 'MCIA Model', 'Cubic Spline', 'Zero Fill'）
-        value = 与 evaluate_subject 格式相同的指标字典
-    output_dir : Path
-        输出目录
-    title : str
-        图标题
+    参数：
+        results：字典；键为方法名（如“MCIA 模型”“三次样条”“零填充”），值为与
+            evaluate_subject 格式相同的指标字典。
+        output_dir：输出目录。
+        title：图标题。
 
-    Returns
-    -------
-    Path : 雷达图路径（箱线图同目录下 baseline_boxplot.png）
+    返回：
+        雷达图路径（柱状图位于同目录的 baseline_bars.png）。
     """
     import math
 
@@ -1094,11 +1089,11 @@ def plot_baseline_comparison(
     # ── 选择展示的指标（高=好 统一化）────────────────────────────────────────
     # 所有指标转换为"越高越好"，范围大致 [0, 1]
     AXES = [
-        ('corr_masked',  'Corr\n(masked)',  True,  1.0),
-        ('envelope_corr','Envelope\nCorr',  True,  1.0),
-        ('mse_masked',   'MSE\n(masked)',   False, None),  # 需动态归一化
-        ('mdf_error',    'MDF\nError',      False, None),
-        ('mae',          'MAE\n(whole)',    False, None),
+        ('corr_masked',  '缺失区\n相关系数', True,  1.0),
+        ('envelope_corr','包络\n相关系数',   True,  1.0),
+        ('mse_masked',   '缺失区\nMSE',      False, None),  # 需动态归一化
+        ('mdf_error',    'MDF\n误差',         False, None),
+        ('mae',          '整体\nMAE',         False, None),
     ]
 
     methods = list(results.keys())
@@ -1122,7 +1117,7 @@ def plot_baseline_comparison(
 
     axis_labels = [a[1] for a in AXES]
     n_axes = len(AXES)
-    scores = {}  # method → list of normed scores per axis
+    scores = {}  # 方法名 → 各轴归一化分数列表
     for i, method in enumerate(methods):
         scores[method] = [
             _norm_score(a[0], a[2], a[3], None)[i]
@@ -1162,10 +1157,10 @@ def plot_baseline_comparison(
     # ── 2. 箱线图（原始值，每个指标一个子图）────────────────────────────────
     # 只展示关键 4 个指标
     BOX_KEYS = [
-        ('mse_masked',   'MSE (masked)',   False),
-        ('corr_masked',  'Corr (masked)',  True),
-        ('envelope_corr','Envelope Corr',  True),
-        ('mdf_error',    'MDF Error (Hz)', False),
+        ('mse_masked',   '缺失区 MSE',       False),
+        ('corr_masked',  '缺失区相关系数',   True),
+        ('envelope_corr','包络相关系数',     True),
+        ('mdf_error',    'MDF 误差（Hz）',  False),
     ]
     fig_box, axes = plt.subplots(1, len(BOX_KEYS), figsize=(4 * len(BOX_KEYS), 4))
     fig_box.suptitle(title, fontsize=11)

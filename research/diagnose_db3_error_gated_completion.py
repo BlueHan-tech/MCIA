@@ -1,8 +1,7 @@
-"""Independent validation-trained EMG risk-gate plus MCIA completion diagnostic.
+"""独立诊断：验证集训练的 EMG 风险门控与 MCIA 补全。
 
-The test-time gate receives EMG-derived features only.  Validation angle errors
-are used solely to fit the gate before the final blinded test evaluation.
-This script is intentionally outside Exp1/Exp2/Exp3.
+测试期门控只接收 EMG 派生特征。验证角度误差仅用于在最终盲测前拟合门控。
+本脚本明确置于实验一、二、三之外。
 """
 from __future__ import annotations
 

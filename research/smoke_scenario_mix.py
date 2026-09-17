@@ -5,7 +5,7 @@
   2) validate_epoch_mcia 跑通
   3) save_training_epoch_snapshot 生成 PNG
   4) build_report 生成 scenario_matrix.png / per_channel_corr.png / REPORT.md
-  5) plot_completion_panel writes s1..s3 unified scenario smoke panels
+  5) plot_completion_panel 生成 s1..s3 统一场景冒烟测试面板
 """
 import sys
 import tempfile
@@ -172,7 +172,7 @@ def main():
         assert not missing, f"report missing: {missing}"
         print("[smoke] report contents OK")
 
-        # Unified scenario panel smoke
+        # 统一场景面板的冒烟测试
         scenario_dir = tmp / 'scenario_panels'
         scenario_paths = save_scenario_panel_smoke(
             model, val_loader, device, mask_gen, scenario_dir,

@@ -1,4 +1,4 @@
-"""Time-bounded paired activation screen, train/validation only."""
+"""限时配对激活函数筛查，仅使用训练集和验证集。"""
 from __future__ import annotations
 import copy
 import hashlib
@@ -39,7 +39,7 @@ def main():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     loader = NinaProDataLoader(root['paths']['db2'], root['paths']['db3'], fs=cfg['orig_fs'])
-    # Reuse the train-repetition-only scaler, not the legacy DB2 scaler.
+    # 复用仅由训练重复拟合的缩放器，不使用旧版 DB2 缩放器。
     x, _, subjects, reps, metadata = prepare_kinematics_data(
         loader, [1, 2], cfg, exercises=(1,), db='db2', return_metadata=True)
     rng = np.random.default_rng(42)
@@ -143,7 +143,7 @@ def main():
             y = train[order[i:i+16]]
             mask = generator.generate_mask(y)
             for name, model in models.items():
-                # Identical dropout/auxiliary-loss RNG on the same batch and mask.
+                # 同一批次和掩码使用相同的随机失活及辅助损失随机数流。
                 set_seed(42000 + epoch*100 + step)
                 pred = model(y*mask, raw_time_mask=mask, return_aux=True)
                 loss, _ = criterion(pred, y, mask)

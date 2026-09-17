@@ -1,8 +1,8 @@
-"""PyCharm-run helper for rebuilding figures from an existing run.
+"""便于在 PyCharm 中从已有 run 重建图像的辅助入口。
 
-Open this file in PyCharm and click the green Run button. It sets MCIA_RUN_DIR
-for the selected run, then delegates to scripts/generate_figures_from_run.py.
-No training, prediction, metrics, checkpoints, or cached data are modified.
+在 PyCharm 中打开本文件并点击绿色运行按钮。它为选定 run 设置 MCIA_RUN_DIR，
+再调用 scripts/generate_figures_from_run.py。不修改训练、预测、指标、检查点或
+缓存数据。
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Change only this run id when you want to regenerate figures for another run.
+# 若要为其他 run 重新生成图像，只需修改这里的 run 编号。
 RUN_ID = "run_20260722_153608_1"
 INCLUDE_LEGACY_PAPER_FIGURES = False
 

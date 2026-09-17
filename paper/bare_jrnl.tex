@@ -1,6 +1,6 @@
 \documentclass[journal]{IEEEtran}
 
-% ===================== Packages =====================
+% ===================== 宏包 =====================
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{graphicx}
@@ -11,7 +11,7 @@
 \usepackage{xcolor}
 \usepackage{bm}
 
-% ===================== Hyphenation =====================
+% ===================== 断词规则 =====================
 \hyphenation{op-tical net-works semi-conduc-tor trans-radial}
 
 \begin{document}
@@ -74,11 +74,11 @@ The proposed framework aims to improve continuous joint angle estimation in tran
 
 The framework consists of three stages. In the first stage, a masked autoencoder is pretrained on the NinaPro DB2 able-bodied dataset to learn how to reconstruct complete sEMG waveforms from partially observed inputs. In the second stage, the learned able-bodied prior is transferred to the NinaPro DB3 amputee dataset, where subject-specific few-shot adaptation is performed for each amputee participant. In the third stage, the adapted generative model produces augmented sEMG, and the raw sEMG, augmented sEMG, and their channel-wise concatenation are separately fed into identical continuous joint angle regressors for fair comparison.
 
-% If a framework figure is available, place the figure file in the same directory and uncomment the following block.
+% 如果已有框架图，将图像文件放入同一目录，并取消下面代码块的注释。
 % \begin{figure*}[!t]
 %     \centering
 %     \includegraphics[width=0.95\textwidth]{framework.pdf}
-%     \caption{Overall architecture of the proposed generative sEMG augmentation framework.}
+%     \caption{所提出的生成式 sEMG 增强框架的总体结构。}
 %     \label{fig:framework}
 % \end{figure*}
 
@@ -362,20 +362,20 @@ R^2=1-\frac{\sum_{i=1}^{N}(y_i-\hat{y}_i)^2}{\sum_{i=1}^{N}(y_i-\bar{y})^2}.
 Lower RMSE and MAE indicate smaller prediction errors, whereas higher $R^2$ and Pearson correlation indicate that the predicted trajectories better follow the true joint motion.
 
 \section{Results}
-% To be completed: DB2 healthy-subject completion results, DB3 transfer/adaptation results, and Raw/Enhanced/Raw+Enhanced continuous angle-estimation results.
+% 待补充：DB2 健康被试补全结果、DB3 迁移/适配结果，以及原始/增强/原始加增强输入的连续角度估计结果。
 
 \section{Discussion}
-% To be completed: methodological advantages, clinical implications, real-time application boundaries, limitations, and future work.
+% 待补充：方法优势、临床意义、实时应用边界、局限性与未来工作。
 
 \section{Conclusion}
-% To be completed.
+% 待补充。
 
 \appendices
 \section{Additional Implementation Details}
-% To be completed: model hyperparameters, training details, data split details, and implementation environment.
+% 待补充：模型超参数、训练细节、数据划分细节与实现环境。
 
 \section*{Acknowledgment}
-% To be completed: funding sources, experimental assistance, and dataset acknowledgments.
+% 待补充：资助来源、实验协助与数据集致谢。
 
 \ifCLASSOPTIONcaptionsoff
   \newpage
@@ -510,7 +510,7 @@ I. Vujaklija \emph{et al.},
 
 \end{thebibliography}
 
-% Remove the biography section if it is not required by the target submission format.
+% 如果目标投稿格式不要求作者简介，则删除该节。
 \begin{IEEEbiographynophoto}{Author Name}
 Biography text here.
 \end{IEEEbiographynophoto}

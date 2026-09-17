@@ -1,7 +1,7 @@
-"""Diagnose Matplotlib native crashes on Windows by isolating each step.
+"""通过逐步骤隔离诊断 Windows 上的 Matplotlib 原生崩溃。
 
-Each probe runs in a fresh child Python process so a native crash in one step
-cannot prevent later probes from reporting their own status.
+每个探针在全新的 Python 子进程中运行，因此某一步的原生崩溃不会阻止后续探针
+报告各自状态。
 """
 
 from __future__ import annotations

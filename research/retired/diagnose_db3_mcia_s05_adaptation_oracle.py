@@ -1,4 +1,4 @@
-"""Train-only S05 MCIA adapter check with a fixed validation-only Oracle screen."""
+"""仅用训练集检查 S05 MCIA 适配器，并采用固定的仅验证集 Oracle 上界筛查。"""
 from __future__ import annotations
 
 import argparse

@@ -1,28 +1,26 @@
-"""WC-BQD (within-channel baseline quality detector) dev validation.
+"""WC-BQD（通道内基线质量检测器）开发验证。
 
-Standalone diagnostic: implements the bottom-up within-channel detector
-(T1 plateau/clipping, T2 low-energy robust-z, T3 low-frequency burst) with
-baselines fitted only from train repetitions 1/3/4 active seconds. The main
-chain (utils/db3_quality_mask) is untouched.
+独立诊断：实现自下而上的通道内检测（T1 平台/削顶、T2 低能量稳健 z 分数、
+T3 低频突发），仅用训练重复 1/3/4 的活动秒拟合基线。
+不修改主链路（utils/db3_quality_mask）。
 
-Pre-declared acceptance criteria (fixed before running; verdicts use
-HELD-OUT repetitions only, i.e. deployment-realistic flags from
-train-fitted baselines):
-  C1  healthy held-out pooled flag rate <= 5%
-  C2a healthy |Pearson(per-channel flag rate, per-channel median RMS)| <= 0.3
-  C2b healthy Ch11/Ch12 flag rate <= 2x pooled
-  C3a DB3 held-out pooled flag rate <= 12% (vs MQP train-rep reference 18.58%)
-  C3b DB3 per-channel max rate <= max(3x pooled, pooled+2pp); per-action within [0.5x,2x]
-  C3c hard-zero channels: >= 95% of their held-out active seconds flagged
-  C4  downstream S05: WCBQD-mask B validation RMSE <= current-mask B RMSE
+预先声明的验收判据（运行前固定；判定仅使用留出重复，
+即以训练基线产生符合部署条件的标记）：
+  C1  健康留出数据的汇总标记率 <= 5%
+  C2a 健康数据 |Pearson(各通道标记率, 各通道 RMS 中位数)| <= 0.3
+  C2b 健康 Ch11/Ch12 标记率 <= 汇总值的 2 倍
+  C3a DB3 留出数据汇总标记率 <= 12%（MQP 训练重复参考值为 18.58%）
+  C3b DB3 通道最大标记率 <= max(汇总值的 3 倍, 汇总值+2 个百分点)；
+      每个动作的标记率在汇总值的 [0.5,2] 倍内
+  C3c 全零通道：其留出活动秒中 >= 95% 被标记
+  C4  下游 S05：WCBQD 掩码 B 组验证 RMSE <= 当前掩码 B 组 RMSE
 
-Detector constants (pre-declared; v0.1 after v0's T1 caught benign
-quantization duplicates on DB2 Ch3/Ch10):
-  kappa_low=3.5 (Leys 2013), kappa_high=5.0, low_freq=20 Hz, power_frac=0.8,
-  plateau: run>=10 at the second's P99.5 amplitude extremes (clipping) OR
-  run>=100 samples (50 ms flatline); duplicate-fraction rule removed.
+检测器常量（预先声明；v0 的 T1 将 DB2 Ch3/Ch10 的正常量化重复误判后采用 v0.1）：
+  kappa_low=3.5（Leys 2013），kappa_high=5.0，low_freq=20 Hz，power_frac=0.8；
+  平台条件：位于该秒 P99.5 幅值极端区的连续段 run>=10（削顶），
+  或连续段 run>=100 点（50 ms 平直段）；已移除重复值占比规则。
 
-Usage: python research/diagnose_wcbqd_detector.py --stage healthy|db3|downstream
+用法：python research/diagnose_wcbqd_detector.py --stage healthy|db3|downstream
 """
 
 from __future__ import annotations
@@ -112,7 +110,7 @@ def collect_subject(loader, subject_id, exercises, db: str):
 
 
 def run_detector(loader, subject_id, exercises, db: str, action_ids):
-    """Per-second arrays from one subject; baselines from train reps only."""
+    """提取单名被试的逐秒数组；基线仅来自训练重复。"""
     emg, labels, reps = collect_subject(loader, subject_id, exercises, db)
     centered = emg - emg.mean(axis=0, keepdims=True)
     rows = list(iter_seconds(labels, reps, action_ids))

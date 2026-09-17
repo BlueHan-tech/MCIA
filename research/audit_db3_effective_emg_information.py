@@ -1,10 +1,8 @@
-"""Read-only DB2/DB3 audit for EMG channels with little action-related information.
+"""对动作相关信息较少的 EMG 通道进行 DB2/DB3 只读审计。
 
-This is deliberately not a missing-data detector.  It looks for DB3 channels
-whose EMG remains rest-like during objectively dynamic glove periods and whose
-subject-level action coupling is unusually low compared with DB2.  Any result
-is an MCIA masking candidate for follow-up validation, never a claim that the
-original EMG was corrupted.
+这不是缺失数据检测器。它查找在 glove 客观动态时段仍表现为静息样 EMG、且
+被试级动作耦合相对 DB2 异常偏低的 DB3 通道。结果只能作为后续验证的 MCIA
+掩码候选，不能据此声称原始 EMG 已损坏。
 """
 from __future__ import annotations
 

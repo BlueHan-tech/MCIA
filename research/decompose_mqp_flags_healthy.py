@@ -1,14 +1,13 @@
-"""Healthy DB2 MQP flag decomposition with action and activation metadata.
+"""结合动作和激活元数据分解健康 DB2 的 MQP 标记。
 
-Reloads DB2 S01-S10 (train-side subjects, E1+E2 active seconds) through the
-same MQP path, saving per second: action, repetition, 12-channel p values,
-and 12-channel RMS amplitude. Reports at threshold 0.20:
-  - per-channel x per-action flag structure (mirrors the DB3 decomposition);
-  - activation contrast: median RMS of flagged vs unflagged channel-seconds
-    overall and per channel (tests whether flags track low/high activation);
-  - multi-channel co-flagging distribution.
+通过同一 MQP 路径重新加载 DB2 S01-S10（训练侧被试，E1+E2 动作秒），逐秒保存
+动作、repetition、12 通道 p 值及 RMS 幅值。在阈值 0.20 下报告：
+  - “逐通道 × 逐动作”标记结构（与 DB3 分解对应）；
+  - 激活对照：总体及逐通道已标记/未标记“通道-秒”的 RMS 中位数，检验标记
+    是否跟踪低/高激活；
+  - 多通道共同标记分布。
 
-Writes only to <run>/06_diagnostics/.
+仅写入 <run>/06_diagnostics/。
 """
 
 from __future__ import annotations

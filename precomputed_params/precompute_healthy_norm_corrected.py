@@ -33,11 +33,11 @@ class HealthyNormPrecomputer:
         计算标准化参数 (均值和标准差)
         使用Welford's在线算法，避免内存溢出
 
-        Args:
+        参数：
             subject_ids: 被试ID列表
             exercises: 练习编号
 
-        Returns:
+        返回值：
             mean, std: (n_channels,) 均值和标准差
         """
         print("\n" + "="*70)
@@ -102,12 +102,12 @@ class HealthyNormPrecomputer:
         计算健康常模统计（RMS能量的均值和标准差）
         用于生成静态掩码的P_norm维度
 
-        Args:
+        参数：
             subject_ids: 被试ID列表（建议前10个）
             exercises: 练习编号
             max_samples_per_subject: 每个被试最大采样数
 
-        Returns:
+        返回值：
             norm_mean, norm_std: (n_channels,) RMS能量的均值和标准差
         """
         print("\n" + "="*70)
@@ -161,7 +161,7 @@ class HealthyNormPrecomputer:
         """
         保存预计算的数据
 
-        Args:
+        参数：
             scaler_mean: 标准化均值
             scaler_std: 标准化标准差
             norm_mean: 健康常模均值

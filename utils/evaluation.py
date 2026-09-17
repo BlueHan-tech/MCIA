@@ -6,8 +6,8 @@
 - evaluate_and_plot: 单难度详细可视化
 - evaluate_and_plot_multi_difficulty: 多难度级别可视化
 - validate_epoch_mcia: 固定目标域验证
-- validate_epoch_mcia_masked: 带 masked 指标；返回值含模型范数字段
-- probe_film_norms: pred_head 与 local bypass 的 L2 范数
+- validate_epoch_mcia_masked: 带缺失区域指标；返回值含模型范数字段
+- probe_film_norms: pred_head 与局部旁路 的 L2 范数
 - save_training_history / print_finetuning_summary: 结果保存与汇总
 """
 
@@ -155,9 +155,8 @@ def validate_epoch_mcia_masked(model, dataloader, device, mask_gen, criterion=No
             emg_masked = emg_clean * mask
             mask_1d = derive_ch_mask_from_sample_mask(mask)
 
-            # Validation must be deterministic for checkpoint selection.  The
-            # caller supplies a separately seeded mask generator; classifier-
-            # free condition dropout is a training-only perturbation.
+            # 检查点选择要求验证过程可复现。调用方提供独立设定种子的掩码生成器；
+            # 无分类器条件丢弃仅作为训练期扰动。
             _ = cfg_dropout_prob
             drop_condition = False
             emg_pred = model(
@@ -447,11 +446,10 @@ def evaluate_subject(model, ddpm, dataloader, device, mask_gen, difficulty=1.0,
 
 
 def evaluate_and_plot_multi_difficulty(model, mcia_wrapper, dataloader, device, output_dir, mask_gen, guidance_scale=2.0):
-    """DEPRECATED: legacy plotting helper.
+    """已弃用：旧版绘图辅助函数。
 
-    Current mainline rendering uses utils.visualization.build_report /
-    plot_completion_panel. This function is retained for manual backward
-    compatibility and its behavior is intentionally unchanged.
+    当前主线绘图使用 utils.visualization.build_report / plot_completion_panel。
+    本函数仅为手动向后兼容而保留，其行为有意保持不变。
 
     多难度级别可视化：5个难度级别各2个样本（共10个样本）
     """
@@ -541,9 +539,9 @@ def evaluate_and_plot_multi_difficulty(model, mcia_wrapper, dataloader, device, 
             ax = fig.add_subplot(gs[row, col])
             time_steps = np.arange(T)
             
-            ax.plot(time_steps, emg_clean_np[sample_idx, :, ch], 'g-', label='Ground Truth', alpha=0.9, linewidth=1.5)
-            ax.plot(time_steps, emg_masked_np[sample_idx, :, ch], 'b--', label='Masked Input', alpha=0.6, linewidth=1.0)
-            ax.plot(time_steps, emg_completed_np[sample_idx, :, ch], 'r-', label='Reconstructed', alpha=0.8, linewidth=1.5)
+            ax.plot(time_steps, emg_clean_np[sample_idx, :, ch], 'g-', label='真实值', alpha=0.9, linewidth=1.5)
+            ax.plot(time_steps, emg_masked_np[sample_idx, :, ch], 'b--', label='掩码输入', alpha=0.6, linewidth=1.0)
+            ax.plot(time_steps, emg_completed_np[sample_idx, :, ch], 'r-', label='重建值', alpha=0.8, linewidth=1.5)
             
             for t_idx in range(T):
                 if mask_np[sample_idx, t_idx, ch] < 0.5:
@@ -559,37 +557,36 @@ def evaluate_and_plot_multi_difficulty(model, mcia_wrapper, dataloader, device, 
                 corr = 0.0
             
             if channel_mask_ratio > 0.5:
-                status, status_color = f"Missing {channel_mask_ratio:.0%}", 'red'
+                status, status_color = f"缺失 {channel_mask_ratio:.0%}", 'red'
             elif channel_mask_ratio > 0.1:
-                status, status_color = f"Partial {channel_mask_ratio:.0%}", 'orange'
+                status, status_color = f"部分缺失 {channel_mask_ratio:.0%}", 'orange'
             else:
-                status, status_color = "Normal", 'green'
+                status, status_color = "正常", 'green'
             
-            ax.set_title(f'Ch{ch+1} [{status}] | MSE: {mse_ch:.4f} | Corr: {corr:.3f}',
+            ax.set_title(f'通道 {ch+1} [{status}] | MSE：{mse_ch:.4f} | 相关系数：{corr:.3f}',
                         fontsize=10, fontweight='bold', color=status_color)
             ax.grid(True, alpha=0.3)
             if ch == 0:
                 ax.legend(loc='upper right', fontsize=8)
         
         level_name = ['Lv1', 'Lv2', 'Lv3', 'Lv4', 'Lv5'][level_idx]
-        fig.suptitle(f'Sample {sample_idx+1} | {level_name} (D={difficulty:.2f})', fontsize=16, fontweight='bold')
+        fig.suptitle(f'样本 {sample_idx+1} | {level_name}（难度={difficulty:.2f}）', fontsize=16, fontweight='bold')
         
         plt.savefig(Path(output_dir) / f'sample_{sample_idx+1:02d}_level{level_idx+1}_diff{difficulty:.2f}.png',
                    dpi=150, bbox_inches='tight')
         plt.close()
     
-    print(f"  Multi-difficulty visualization saved to: {output_dir}")
+    print(f"  多难度可视化已保存至：{output_dir}")
 
 
 def evaluate_and_plot_multi_scenario(model, mcia_wrapper, dataloader, device, output_dir,
                                      mask_gen, guidance_scale=2.0,
                                      scenarios=('s1', 's2', 's3'),
                                      samples_per_scenario=2):
-    """DEPRECATED: legacy plotting helper.
+    """已弃用：旧版绘图辅助函数。
 
-    Current mainline rendering uses utils.visualization.build_report /
-    plot_completion_panel. This function is retained for manual backward
-    compatibility and its behavior is intentionally unchanged.
+    当前主线绘图使用 utils.visualization.build_report / plot_completion_panel。
+    本函数仅为手动向后兼容而保留，其行为有意保持不变。
 
     ScenarioMix 的多场景可视化：每个 scenario 抽 `samples_per_scenario` 张 12 通道对比图。
 
@@ -672,9 +669,9 @@ def evaluate_and_plot_multi_scenario(model, mcia_wrapper, dataloader, device, ou
                 ax = fig.add_subplot(gs[row, col])
                 time_steps = np.arange(T)
 
-                ax.plot(time_steps, emg_clean_np[k, :, ch], 'g-', label='Ground Truth', alpha=0.9, linewidth=1.5)
-                ax.plot(time_steps, emg_masked_np[k, :, ch], 'b--', label='Masked Input', alpha=0.6, linewidth=1.0)
-                ax.plot(time_steps, emg_completed_np[k, :, ch], 'r-', label='Reconstructed', alpha=0.8, linewidth=1.5)
+                ax.plot(time_steps, emg_clean_np[k, :, ch], 'g-', label='真实值', alpha=0.9, linewidth=1.5)
+                ax.plot(time_steps, emg_masked_np[k, :, ch], 'b--', label='掩码输入', alpha=0.6, linewidth=1.0)
+                ax.plot(time_steps, emg_completed_np[k, :, ch], 'r-', label='重建值', alpha=0.8, linewidth=1.5)
 
                 for t_idx in range(T):
                     if mask_np[k, t_idx, ch] < 0.5:
@@ -689,40 +686,40 @@ def evaluate_and_plot_multi_scenario(model, mcia_wrapper, dataloader, device, ou
                     corr = 0.0
 
                 if ch_mask_ratio < 1e-6:
-                    status, status_color = 'Normal', 'green'
+                    status, status_color = '正常', 'green'
                 elif ch_mask_ratio >= 0.99:
-                    status, status_color = 'Missing 100%', 'red'
+                    status, status_color = '缺失 100%', 'red'
                 else:
-                    status, status_color = f'Missing {ch_mask_ratio*100:.0f}%', 'orange'
-                ax.set_title(f'Ch{ch+1} [{status}] | MSE: {mse_ch:.4f} | Corr: {corr:.3f}',
+                    status, status_color = f'缺失 {ch_mask_ratio*100:.0f}%', 'orange'
+                ax.set_title(f'通道 {ch+1} [{status}] | MSE：{mse_ch:.4f} | 相关系数：{corr:.3f}',
                              fontsize=10, fontweight='bold', color=status_color)
                 ax.grid(True, alpha=0.3)
                 if ch == 0:
                     ax.legend(loc='upper right', fontsize=8)
 
-            fig.suptitle(f'Sample {k+1} | {scenario.upper()} (mask_ratio={mask_ratio:.2f})',
+            fig.suptitle(f'样本 {k+1} | {scenario.upper()}（掩码比例={mask_ratio:.2f}）',
                          fontsize=16, fontweight='bold')
             plt.savefig(Path(output_dir) / f'{scenario}_sample_{k+1:02d}_ratio{mask_ratio:.2f}.png',
                         dpi=150, bbox_inches='tight')
             plt.close()
 
-    print(f"  Multi-scenario visualization saved to: {output_dir}")
+    print(f"  多场景可视化已保存至：{output_dir}")
 
 
 def save_training_history(history, output_path):
     """保存训练历史"""
     with open(output_path, 'w') as f:
         json.dump(history, f, indent=2)
-    print(f"  Training history saved: {output_path}")
+    print(f"  训练历史已保存：{output_path}")
 
 
 def print_finetuning_summary(all_results):
     """打印微调结果摘要（含 Wilcoxon 检验）"""
     print("\n" + "="*100)
-    print("===== Fine-tuning Summary =====")
+    print("===== 微调摘要 =====")
     print("="*100)
     
-    print(f"\n{'Subject':<10} {'ZS-MSE':<12} {'FT-MSE':<12} {'delta MSE':<12} {'ZS-Corr':<12} {'FT-Corr':<12} {'delta Corr':<12}")
+    print(f"\n{'被试':<10} {'零样本-MSE':<12} {'微调-MSE':<12} {'MSE 变化':<12} {'零样本-相关':<12} {'微调-相关':<12} {'相关变化':<12}")
     print("-" * 100)
     
     zs_mse_list, ft_mse_list = [], []
@@ -760,16 +757,16 @@ def print_finetuning_summary(all_results):
     }
     
     print("-" * 100)
-    print(f"Average  {avg_zeroshot['mse']:<12.6f} {avg_finetuned['mse']:<12.6f} {avg_improvement['mse']:>+10.2f}% "
+    print(f"平均值   {avg_zeroshot['mse']:<12.6f} {avg_finetuned['mse']:<12.6f} {avg_improvement['mse']:>+10.2f}% "
           f"{avg_zeroshot['correlation']:<12.4f} {avg_finetuned['correlation']:<12.4f} {avg_improvement['correlation']:>+10.2f}%")
     print("="*100)
     
     try:
         stat_mse, p_mse = stats.wilcoxon(zs_mse_list, ft_mse_list)
         stat_corr, p_corr = stats.wilcoxon(zs_corr_list, ft_corr_list)
-        print(f"\nWilcoxon Test: MSE p={p_mse:.5f} {'*' if p_mse < 0.05 else 'ns'} | "
-              f"Corr p={p_corr:.5f} {'*' if p_corr < 0.05 else 'ns'}")
+        print(f"\nWilcoxon 检验：MSE p={p_mse:.5f} {'*' if p_mse < 0.05 else '不显著'} | "
+              f"相关系数 p={p_corr:.5f} {'*' if p_corr < 0.05 else '不显著'}")
     except Exception as e:
-        print(f"\nStatistical test failed: {e}")
+        print(f"\n统计检验失败：{e}")
     print("="*100)
 

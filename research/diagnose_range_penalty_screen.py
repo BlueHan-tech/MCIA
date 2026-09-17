@@ -1,12 +1,10 @@
-"""Time-bounded paired range-penalty screen, train/validation only.
+"""限时配对范围惩罚筛查，仅使用训练集和验证集。
 
-Two MCIA models with identical random initialization are trained on the same
-DB2 windows and masks; the only difference is the training-loss soft [0,1]
-range penalty (baseline w=0 vs w=0.5). Evaluation applies the adopted
-delivery rule (clip -> patch-boundary cross-fade -> copy-back) identically to
-both arms, and additionally reports the pre-clamp overshoot ratio to verify
-the penalty's mechanism. No test subjects, no checkpoint selection; last
-fully completed paired epoch decides. Writes only to <run>/06_diagnostics/.
+两个具有相同随机初始化的 MCIA 模型在相同 DB2 窗口和掩码上训练；唯一差异是
+训练损失中的软 [0,1] 范围惩罚（基线 w=0，对照 w=0.5）。评估对两臂应用完全
+相同的已采纳交付规则（裁剪 -> patch 边界淡化 -> 复制回观测值），并额外报告
+裁剪前越界比例以验证惩罚机制。不使用测试被试、不选择检查点；以最后完整完成
+的配对轮次判定。仅写入 <run>/06_diagnostics/。
 """
 
 from __future__ import annotations

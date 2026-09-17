@@ -16,8 +16,8 @@ DEFAULT_TEST_REPS = (2, 5)
 class KinematicsDataset(Dataset):
     def __init__(self, emg_segments, angle_segments):
         if len(emg_segments) != len(angle_segments):
-            raise ValueError(f"EMG ({len(emg_segments)}) and angle ({len(angle_segments)}) count mismatch")
-        assert_key10_target(angle_segments, "KinematicsDataset angle segments")
+            raise ValueError(f"EMG（{len(emg_segments)}）与角度（{len(angle_segments)}）的片段数量不一致")
+        assert_key10_target(angle_segments, "KinematicsDataset 角度片段")
         self.emg = torch.as_tensor(emg_segments, dtype=torch.float32)
         self.angle = torch.as_tensor(angle_segments, dtype=torch.float32)
     def __len__(self):
@@ -41,7 +41,7 @@ def make_rep_split(repetitions, train_reps=DEFAULT_TRAIN_REPS, val_reps=DEFAULT_
     val = np.flatnonzero(np.isin(reps, val_reps)).astype(np.int64)
     test = np.flatnonzero(np.isin(reps, test_reps)).astype(np.int64)
     if not len(train) or not len(val) or not len(test):
-        raise ValueError(f"Fixed repetition split is empty: train={len(train)} val={len(val)} test={len(test)}")
+        raise ValueError(f"固定 repetition 划分为空：训练={len(train)}，验证={len(val)}，测试={len(test)}")
     return train, val, test
 
 def _subject_dir(data_loader, subject_id, db):
@@ -49,13 +49,13 @@ def _subject_dir(data_loader, subject_id, db):
         return Path(data_loader.db2_path) / f"DB2_s{subject_id}"
     if db == "db3":
         return Path(data_loader.db3_path) / f"s{subject_id}" / f"DB3_s{subject_id}"
-    raise ValueError(f"Unsupported database: {db}")
+    raise ValueError(f"不支持的数据库：{db}")
 
 def _load_exercise(data_loader, subject_id, exercise, db):
     path = _subject_dir(data_loader, subject_id, db) / f"S{subject_id}_E{exercise}_A1.mat"
     mat = sio.loadmat(path)
     if "glove" not in mat:
-        raise ValueError(f"S{subject_id:02d} E{exercise}: no glove field")
+        raise ValueError(f"S{subject_id:02d} E{exercise}：缺少 glove 字段")
     label_key = "restimulus" if "restimulus" in mat else "stimulus"
     repetition_key = "rerepetition" if "rerepetition" in mat else "repetition"
     emg = np.asarray(mat["emg"], dtype=np.float32)
@@ -63,7 +63,7 @@ def _load_exercise(data_loader, subject_id, exercise, db):
     labels = np.asarray(mat[label_key]).reshape(-1)
     repetitions = np.asarray(mat[repetition_key]).reshape(-1)
     if len({len(emg), len(glove), len(labels), len(repetitions)}) != 1 or glove.ndim != 2 or glove.shape[1] != 22:
-        raise ValueError(f"S{subject_id:02d} E{exercise}: invalid paired EMG/glove shapes")
+        raise ValueError(f"S{subject_id:02d} E{exercise}：配对 EMG/glove 的形状无效")
     return {"exercise": int(exercise), "emg": emg, "glove": glove, "labels": labels, "repetitions": repetitions}
 
 def _preprocess_emg(data_loader, emg, factor):
@@ -87,7 +87,7 @@ def prepare_kinematics_data(data_loader, subject_ids, config, exercises=(1,), db
     factor = int(config["orig_fs"] / config["target_fs"])
     window_size, stride = int(config["window_size"]), int(config["stride"])
     all_emg, all_angle, all_subjects, all_reps, all_exercises, all_starts, all_masks = [], [], [], [], [], [], []
-    print(f"\n[Kinematics Data Prep] {db.upper()}, exercises={list(exercises)}, {config['orig_fs']}Hz -> {config['target_fs']}Hz")
+    print(f"\n[运动学数据准备] {db.upper()}，exercise={list(exercises)}，{config['orig_fs']} Hz -> {config['target_fs']} Hz")
     for subject_id in subject_ids:
         try:
             prepared = []
@@ -103,7 +103,7 @@ def prepare_kinematics_data(data_loader, subject_ids, config, exercises=(1,), db
             train_emg = [item["emg"][start:start+window_size] for item in prepared for start, rep in item["rows"] if rep in DEFAULT_TRAIN_REPS]
             train_glove = [item["glove"][start:start+window_size] for item in prepared for start, rep in item["rows"] if rep in DEFAULT_TRAIN_REPS]
             if not train_emg:
-                raise ValueError("no train-repetition paired windows")
+                raise ValueError("训练 repetition 中没有配对窗口")
             train_emg, train_glove = np.concatenate(train_emg), np.concatenate(train_glove)
             emg_max = float(train_emg.max())
             def compress(values):
@@ -122,11 +122,11 @@ def prepare_kinematics_data(data_loader, subject_ids, config, exercises=(1,), db
                     all_subjects.append(int(subject_id)); all_reps.append(int(rep))
                     all_exercises.append(int(item["exercise"])); all_starts.append(int(start)); count += 1
                     all_masks.append(item["quality_mask"][start:end].astype(np.float32, copy=False))
-            print(f"  S{subject_id:02d}: {count} paired Key10 ({KEY10_DIM}-D) windows")
+            print(f"  S{subject_id:02d}：{count} 个配对 Key10（{KEY10_DIM} 维）窗口")
         except Exception as exc:
-            print(f"  S{subject_id:02d}: FAILED - {exc}")
+            print(f"  S{subject_id:02d}：失败 - {exc}")
     if not all_emg:
-        raise ValueError("No valid kinematics data")
+        raise ValueError("没有有效的运动学数据")
     values = (np.stack(all_emg), np.stack(all_angle), np.asarray(all_subjects, dtype=np.int32), np.asarray(all_reps, dtype=np.int32))
     if not return_metadata:
         return values

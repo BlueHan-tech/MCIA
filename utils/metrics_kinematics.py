@@ -21,11 +21,11 @@ def r2_score(y_true, y_pred, min_variance=1e-6):
     R² = 1 - SS_res / SS_tot
     值域 (-inf, 1]，1=完美预测，0=等价于均值预测
 
-    Args:
+    参数：
         y_true: (N, T, C) 或 (N*T, C) 真实关节角度
         y_pred: (N, T, C) 或 (N*T, C) 预测关节角度
 
-    Returns:
+    返回值：
         float: 所有通道的平均 R²
     """
     y_true = y_true.reshape(-1, y_true.shape[-1])
@@ -46,7 +46,7 @@ def rmse(y_true, y_pred):
     """
     均方根误差 RMSE
 
-    Returns:
+    返回值：
         float: 所有通道的平均 RMSE
     """
     y_true = y_true.reshape(-1, y_true.shape[-1])
@@ -85,11 +85,11 @@ def evaluate_kinematics(y_true, y_pred):
     """
     综合评估函数
 
-    Args:
+    参数：
         y_true: (N, T, C) 真实关节角度
         y_pred: (N, T, C) 预测关节角度
 
-    Returns:
+    返回值：
         dict: {'r2': float, 'rmse': float, 'mae': float, 'corr': float, ...}
     """
     r2_avg, r2_ch, r2_valid_ch = r2_score(y_true, y_pred)

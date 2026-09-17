@@ -1,23 +1,23 @@
 """
-单被试全链路贯通测试（Pipeline Sanity Test）
+单被试全链路贯通测试
 ==============================================
 
-在 1 个健康被试上跑 ~12 个 epoch，端到端体检：
+在 1 个健康被试上跑约 12 轮，端到端体检：
 
-  [1] 数据流    : NinaProDataLoader → EMGCompletionDataset → 课程 mask
-  [2] 模型      : MCIA + raw_time_mask + CFG dropout
+  [1] 数据流    : NinaProDataLoader → EMGCompletionDataset → 课程掩码
+  [2] 模型      : MCIA + raw_time_mask + CFG 随机失活
   [3] 损失      : EMGImputationLoss（仅缺失区域）
   [4] 可视化    : 训练期每 N 轮 save_training_epoch_snapshot
                  训练结束执行 build_report（失败样本画廊 / 频谱对比 / 难度矩阵 / metrics.json / REPORT.md）
-  [5] 时间开销  : 每 epoch 耗时 + 总耗时，估算 40 人 × 100 epoch 的工期
-  [6] Axial 破局 : 记录 local/head 权重范数，观察 epoch 5 附近是否"开闸"
+  [5] 时间开销  : 每轮耗时 + 总耗时，估算 40 人 × 100 轮的工期
+  [6] 轴向注意力 : 记录 local/head 权重范数，观察第 5 轮附近是否“开闸”
 
 产物：
   outputs/sanity_pipeline/<timestamp>/
-    ├─ epoch_log.json        # 每 epoch 的 loss / 时间 / Axial 范数
-    ├─ epoch_log.png         # 时间与 loss 曲线
-    ├─ model_norm_curve.png    # local/head 随 epoch 的变化
-    ├─ viz/training/         # 每 2 epoch 一张 12 通道对比图
+    ├─ epoch_log.json        # 每轮的损失 / 时间 / 轴向注意力范数
+    ├─ epoch_log.png         # 时间与损失曲线
+    ├─ model_norm_curve.png    # local/head 随训练轮次的变化
+    ├─ viz/training/         # 每 2 轮一张 12 通道对比图
     └─ viz/report/           # build_report 最终体检报告
 """
 
@@ -142,7 +142,7 @@ def main():
     reps = cache['repetitions']
     print(f'[data] segments: {segments.shape}  reps: {np.unique(reps)}')
 
-    # 按 NinaPro 通用切分：train reps 1,3,4,6 / val reps 2,5
+    # 按 NinaPro 通用切分：训练重复 1,3,4,6 / 验证重复 2,5
     train_mask = np.isin(reps, [1, 3, 4, 6])
     val_mask = np.isin(reps, [2, 5])
     if train_mask.sum() == 0 or val_mask.sum() == 0:
@@ -172,7 +172,7 @@ def main():
     train_loader = DataLoader(train_set, batch_size=args.batch, shuffle=True, num_workers=0)
     val_loader = DataLoader(val_set, batch_size=args.batch, shuffle=False, num_workers=0)
 
-    # ---------- 模型 / mask gen / 课程 / loss ----------
+    # ---------- 模型 / 掩码生成器 / 课程 / 损失 ----------
     mask_gen = GroupWiseMaskGenerator(n_channels=C, time_steps=T)
     curriculum = AdaptiveCurriculumScheduler(
         total_epochs=args.epochs,

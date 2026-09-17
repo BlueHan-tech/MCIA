@@ -1,7 +1,6 @@
-"""Read-only audit of DB3 raw sEMG quality and downstream error association.
+"""DB3 原始 sEMG 质量及其与下游误差关联的只读审计。
 
-This diagnostic intentionally separates acquisition-failure evidence from weak
-physiological activity.  It never invokes MCIA or trains a kinematic regressor.
+本诊断明确区分采集故障证据与弱生理活动。不调用 MCIA，也不训练运动学回归器。
 """
 from __future__ import annotations
 
@@ -33,7 +32,7 @@ def _runs(mask: np.ndarray, min_len: int) -> list[tuple[int, int]]:
 
 def _event_summary(mask: np.ndarray, action_fraction: np.ndarray, patch_ms: float,
                    min_patches: int) -> tuple[dict, np.ndarray]:
-    """Summarize channel-wise candidate events and return their patch coverage."""
+    """汇总逐通道候选事件，并返回其 patch 覆盖情况。"""
     n_patches, n_channels = mask.shape
     coverage = np.zeros_like(mask, dtype=bool)
     rows = []
@@ -87,16 +86,16 @@ def _quality_from_raw(raw: np.ndarray, labels: np.ndarray, fs: int, patch_ms: fl
     global_ptp = np.ptp(raw, axis=0)
     flat_tol = np.maximum(global_ptp * 1e-3, np.finfo(np.float32).eps)
 
-    # A physiologic rest signal remains noisy.  Only a sustained nearly constant
-    # raw waveform is called a clear acquisition-failure *candidate*.
+    # 生理静息信号仍含噪声；只有持续近乎恒定的原始波形
+    # 才称为明显采集故障的候选，而非确诊故障。
     flat_patch = ptp <= flat_tol[None, :]
     clear_min_patches = max(1, int(np.ceil(clear_min_ms / patch_ms)))
     clear_summary, clear_coverage = _event_summary(
         flat_patch, action_fraction, patch_ms, clear_min_patches
     )
 
-    # Repeated record-wide extrema can indicate ADC clipping, but without amplifier
-    # rail metadata this remains a saturation candidate, not confirmed failure.
+    # 整段记录的极值反复出现可能提示 ADC 削顶，但缺少放大器
+    # 电源轨元数据时，仅视为饱和候选，不视为确认故障。
     lo, hi = raw.min(axis=0), raw.max(axis=0)
     atol = np.maximum(global_ptp * 1e-6, np.finfo(np.float32).eps)
     at_extreme = (np.isclose(patches, lo[None, None, :], atol=atol[None, None, :]) |
@@ -104,8 +103,8 @@ def _quality_from_raw(raw: np.ndarray, labels: np.ndarray, fs: int, patch_ms: fl
     clip_patch = at_extreme.mean(axis=1) >= 0.95
     clip_summary, clip_coverage = _event_summary(clip_patch, action_fraction, patch_ms, 1)
 
-    # Weak activity is descriptive. Thresholds are channel-specific movement P5,
-    # which prevents cross-subject amplitude from being interpreted as failure.
+    # 弱活动仅作描述；阈值采用各通道动作幅值的 P5，
+    # 避免将被试间幅值差异解释为故障。
     movement = action_fraction > 0.0
     rms_p5 = np.percentile(rms[movement], 5, axis=0) if movement.any() else np.zeros(raw.shape[1])
     mad_p5 = np.percentile(mad[movement], 5, axis=0) if movement.any() else np.zeros(raw.shape[1])
@@ -203,7 +202,7 @@ def _downstream_association(subject_id: int, prediction_dir: Path, config: dict,
     if len(test_idx) != len(starts) or len(starts) != len(target):
         return {"available": False, "reason": "test window count does not match current preparation"}
 
-    # Count matching alone would not prove a window-level quality/error association.
+    # 仅数量匹配不能证明窗口级质量与误差之间存在关联。
     source = loader.load_db3_subject(subject_id, exercises=[1])
     factor = int(config["orig_fs"] / config["target_fs"])
     labels = np.asarray(source["restimulus"])[::factor]

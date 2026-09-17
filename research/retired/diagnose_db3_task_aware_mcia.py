@@ -1,4 +1,4 @@
-"""Train-only task-aware MCIA adapter check on S05 rule-mask completion."""
+"""仅用训练集检查 S05 规则掩码补全的任务感知 MCIA 适配器。"""
 from __future__ import annotations
 
 import argparse

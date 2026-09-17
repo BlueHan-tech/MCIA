@@ -1,7 +1,7 @@
-"""Bounded, inference-only development comparison of MCIA output activations.
+"""MCIA 输出激活函数的有界、仅推理开发比较。
 
-Uses DB2 validation subject S29 only.  It neither reads DB2 test subjects nor
-writes checkpoints, metrics, figures, or run artifacts.
+仅使用 DB2 验证被试 S29。不读取 DB2 测试被试，也不写入检查点、指标、图像或
+run 产物。
 """
 
 from __future__ import annotations

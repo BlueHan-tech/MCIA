@@ -1,4 +1,4 @@
-"""Independent current-Key10 raw-EMG Thumb-up preview for DB3 S05/S06."""
+"""DB3 S05/S06 的独立预览：当前 Key10、原始 EMG、拇指上举动作。"""
 from __future__ import annotations
 
 import argparse

@@ -1,4 +1,4 @@
-"""Train-split-only screen for conservative MCIA alpha mixing."""
+"""仅使用训练划分筛查保守的 MCIA alpha 混合。"""
 from __future__ import annotations
 
 import argparse

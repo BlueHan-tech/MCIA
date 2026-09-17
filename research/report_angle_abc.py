@@ -59,7 +59,7 @@ def main() -> None:
     c_ckpt = args.c_checkpoint or run_dir / "08_amputee_donor_prior" / "checkpoints" / "C_adapter_lr1e-4.pth"
     if not c_ckpt.is_file():
         raise FileNotFoundError(c_ckpt)
-    # C checkpoint 含 adapter 槽位，需挂载后加载（Adapter 与 06 脚本同源）
+    # C 检查点含适配器槽位，需挂载后加载（适配器与 06 脚本同源）
     c_model = build_mcia(config, device)
     c06 = load("c06", PROJECT_ROOT / "scripts" / "06_adapt_amputee_donor_prior.py")
     dim = c_model.embed_dim

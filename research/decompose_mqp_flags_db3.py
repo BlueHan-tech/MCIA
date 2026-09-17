@@ -1,14 +1,13 @@
-"""Decompose DB3 MQP flags by channel x action from existing NPZ artifacts.
+"""从已有 NPZ 产物按“通道 × 动作”分解 DB3 MQP 标记。
 
-Read-only analysis of the frozen Gronlund reproduction NPZs (train reps
-1/3/4, E1-E3, 9 subjects). At the current threshold 0.20 it reports:
-  - per-exercise per-channel flag rates (12 channels);
-  - per-exercise per-action flag rates with concentration stats;
-  - the full channel x action flag-rate matrices (JSON);
-  - distribution of #flagged channels per flagged second (isolated-electrode
-    signature vs multi-channel movement signature).
+只读分析冻结的 Gronlund 复现 NPZ（训练 repetition 1/3/4，E1-E3，9 名被试）。
+在当前阈值 0.20 下报告：
+  - 各 exercise 的逐通道标记率（12 通道）；
+  - 各 exercise 的逐动作标记率及集中程度统计；
+  - 完整的“通道 × 动作”标记率矩阵（JSON）；
+  - 每个已标记秒中被标记通道数的分布（孤立电极特征与多通道动作特征的对照）。
 
-Writes only to <run>/06_diagnostics/.
+仅写入 <run>/06_diagnostics/。
 """
 
 from __future__ import annotations

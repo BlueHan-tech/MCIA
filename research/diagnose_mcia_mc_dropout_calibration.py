@@ -1,4 +1,4 @@
-"""DB2 MC-dropout calibration for frozen MCIA reconstruction uncertainty."""
+"""在 DB2 上用 MC-dropout 校准冻结 MCIA 的重建不确定性。"""
 from __future__ import annotations
 
 import argparse

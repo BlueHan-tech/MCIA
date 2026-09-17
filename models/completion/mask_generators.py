@@ -1,16 +1,16 @@
 """
-掩码生成器集合 (Mask Generators)
+掩码生成器集合
 
 【通道分组】(NinaPro DB2/DB3, 12通道 sEMG)
   屈肌组 (Flexor):     Ch1-4, Ch9  -> idx [0,1,2,3,8]  (5通道)
   伸肌组 (Extensor):   Ch5-8, Ch10 -> idx [4,5,6,7,9]  (5通道)
-  大臂组 (Upper Arm):  Ch11, Ch12  -> idx [10,11]       (2通道)
+  大臂组：            Ch11, Ch12  -> 索引 [10,11]       (2通道)
 
 本模块提供两类策略：
-  1) GroupWiseMaskGenerator + AdaptiveCurriculumScheduler  [LEGACY]
-     5 级难度的线性课程学习，用于消融对照 / 老 sanity 脚本。
-  2) ScenarioMixMaskGenerator  [RECOMMENDED]
-     4 场景退化启发混合分布 (S1/S2/S3/S4)，全程 patch-aligned 时间块，
+  1) GroupWiseMaskGenerator + AdaptiveCurriculumScheduler  [历史策略]
+     5 级难度的线性课程学习，用于消融对照 / 旧自检脚本。
+  2) ScenarioMixMaskGenerator  [推荐策略]
+     4 场景退化启发混合分布 (S1/S2/S3/S4)，全程使用补丁对齐时间块，
      每组存活通道硬下限保证信息论可解。
 """
 from typing import Dict, List, Optional
@@ -39,15 +39,15 @@ class AdaptiveCurriculumScheduler:
 
     def get_status_description(self, difficulty):
         if difficulty < 0.2:
-            return f"Lv1: 入门 (Basics)      | D={difficulty:.2f}"
+            return f"等级 1：入门             | 难度={difficulty:.2f}"
         elif difficulty < 0.4:
-            return f"Lv2: 进阶 (Intermediate)| D={difficulty:.2f}"
+            return f"等级 2：进阶             | 难度={difficulty:.2f}"
         elif difficulty < 0.6:
-            return f"Lv3: 混合 (Mixed High)  | D={difficulty:.2f}"
+            return f"等级 3：高难混合         | 难度={difficulty:.2f}"
         elif difficulty < 0.8:
-            return f"Lv4: 强化 (Advanced)    | D={difficulty:.2f}"
+            return f"等级 4：强化             | 难度={difficulty:.2f}"
         else:
-            return f"Lv5: 极限 (Survival Mixed)| D={difficulty:.2f}"
+            return f"等级 5：极限混合         | 难度={difficulty:.2f}"
 
 
 class GroupWiseMaskGenerator:
@@ -57,7 +57,7 @@ class GroupWiseMaskGenerator:
     通道分组（索引从0开始）：
     - 屈肌组 (Flexor): Ch1-4, Ch9 -> idx [0,1,2,3,8]
     - 伸肌组 (Extensor): Ch5-8, Ch10 -> idx [4,5,6,7,9]
-    - 大臂组 (Upper Arm): Ch11-12 -> idx [10,11]
+    - 大臂组：Ch11-12 -> 索引 [10,11]
     """
     GROUP_FLEXOR = [0, 1, 2, 3, 8]
     GROUP_EXTENSOR = [4, 5, 6, 7, 9]
@@ -118,7 +118,7 @@ class GroupWiseMaskGenerator:
                 B, C, T = emg_batch.shape
                 dims_btc = False
         else:
-            raise ValueError("Input must be 3D tensor")
+            raise ValueError("输入必须是三维张量")
             
         device = emg_batch.device
         mask = torch.ones((B, C, T), device=device)
@@ -190,20 +190,20 @@ _SCENARIO_ALIAS = {
 class ScenarioMixMaskGenerator:
     """4-场景退化启发混合掩码生成器
 
-    ─ Scenarios ──────────────────────────────────────────────────────────────
-      S1 scattered       : 每通道独立 Bernoulli 整通道 kill（组内保留硬约束）
-                           + 存活通道 patch 对齐时间块
-      S2 adjacent_cluster: flex/ext 组内按 Ch 编号挑 2–3 个相邻通道整条 kill
+    ─ 场景 ──────────────────────────────────────────────────────────────────
+      S1 scattered（分散）: 每通道独立伯努利采样，整通道置为缺失（组内保留硬约束）
+                           + 存活通道的补丁对齐时间块
+      S2 adjacent_cluster（相邻簇）: 屈肌/伸肌组内按通道编号挑 2–3 个相邻通道整条置为缺失
                            + 其余通道弱时间块
-      S3 cross_group     : 恰好 1 flex + 1 ext + 1 upper 整条 kill
+      S3 cross_group（跨组）: 恰好 1 个屈肌 + 1 个伸肌 + 1 个大臂通道整条置为缺失
                            + 其余通道中等时间块
-      S4 heavy_time      : 不杀整通道，每通道独立 patch 对齐时间块
+      S4 heavy_time（长时遮挡）: 不整条丢弃通道，每通道独立使用补丁对齐时间块
 
     ─ 契约保证（防数据泄露） ──────────────────────────────────────────────────
       [C1] 输出 mask ∈ {0.0, 1.0} 严格布尔浮点，无中间值
       [C2] 时间块起点 ∈ {0, P, 2P, ...}，长度 ∈ {k*P | k ≥ 2}
-           → sample-level 与 patch-level mask ratio 严格相等
-           → 下游 mcia_core.derive_patch_time_mask 的 min-pool 派生零信息损失
+           → 采样点级与补丁级掩码比例严格相等
+           → 下游 mcia_core.derive_patch_time_mask 的最小池化派生无信息损失
       [C3] 每组存活通道数 ≥ min_alive_per_group[group]
            → 每个样本都存在"可解"的跨通道推断路径
     """
@@ -242,11 +242,11 @@ class ScenarioMixMaskGenerator:
 
         self.rng = rng if rng is not None else np.random.default_rng()
 
-    # ---------- full-channel victim sampling ----------
+    # ---------- 整通道缺失对象采样 ----------
 
     def _sample_victim_channels(self, count: int) -> set[int]:
         if count not in (1, 2):
-            raise ValueError(f"Expected one or two full-channel victims, got {count}")
+            raise ValueError(f"整通道缺失对象应为一或两个，实际为 {count} 个")
         candidates = np.arange(self.n_channels)
         for _ in range(256):
             victims = set(int(value) for value in self.rng.choice(candidates, size=count, replace=False))
@@ -259,12 +259,12 @@ class ScenarioMixMaskGenerator:
                     break
             if valid:
                 return victims
-        raise RuntimeError("Unable to sample full-channel victims under min_alive constraints")
+        raise RuntimeError("无法在 min_alive 约束下采样整通道缺失对象")
 
-    # ---------- patch 对齐时间块 ----------
+    # ---------- 补丁对齐时间块 ----------
 
     def _sample_patch_aligned_blocks(self, n_blocks_range, block_len_patches_range) -> np.ndarray:
-        """采样 patch 对齐时间块掩码 shape=(T,), 0=缺失, 1=可见。"""
+        """采样补丁对齐时间块掩码，形状为 (T,)，0=缺失，1=可见。"""
         T, P, N = self.time_steps, self.patch_size, self.num_patches
         n_blocks = int(self.rng.integers(n_blocks_range[0], n_blocks_range[1] + 1))
         mask = np.ones(T, dtype=np.float32)
@@ -322,7 +322,7 @@ class ScenarioMixMaskGenerator:
             return self._apply_s2(mask_ct, self.params['s2'])
         if scn == 's3':
             return self._apply_s3(mask_ct, self.params['s3'])
-        raise ValueError(f"Unknown scenario: {scenario}")
+        raise ValueError(f"未知场景：{scenario}")
 
     def generate_batch_masks(
         self,
@@ -352,7 +352,7 @@ class ScenarioMixMaskGenerator:
     ) -> torch.Tensor:
         del difficulty
         if emg_batch.dim() != 3:
-            raise ValueError("Input must be 3D tensor")
+            raise ValueError("输入必须是三维张量")
         if emg_batch.shape[2] == self.n_channels:
             batch_size, steps, channels = emg_batch.shape
             btc = True
@@ -433,7 +433,7 @@ class RuleAlignedMaskGenerator:
     ) -> torch.Tensor:
         del difficulty, scenario
         if emg_batch.dim() != 3:
-            raise ValueError("Input must be 3D tensor")
+            raise ValueError("输入必须是三维张量")
         batch_size = emg_batch.shape[0]
         return self.generate_batch_masks(
             batch_size, device=str(emg_batch.device)
@@ -456,7 +456,7 @@ def _run_self_check(n_trials: int = 100, batch_size: int = 32, seed: int = 0) ->
     for _ in range(10000):
         counts[generator._sample_scenario_id()] += 1
     print(f"sampling={counts}")
-    print("All three-scenario contracts satisfied")
+    print("三个场景的契约均已满足")
 
 
 if __name__ == '__main__':

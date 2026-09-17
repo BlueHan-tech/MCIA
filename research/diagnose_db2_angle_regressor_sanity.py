@@ -1,9 +1,8 @@
-"""Independent DB2 continuous-angle regressor sanity experiment.
+"""独立的 DB2 连续角度回归器自检实验。
 
-This diagnostic is intentionally decoupled from Exp1/Exp2/Exp3. It trains one
-KinematicTCN per DB2 subject on DB2 E1 EMG + same-side glove labels, using the
-same kinematics windowing, repetition split style, model shape, and metric
-helpers as Exp3. Outputs are written under 06_diagnostics/db2_angle_sanity.
+本诊断与实验一、二、三明确解耦。针对每个 DB2 被试，用 DB2 E1 EMG 和同侧 glove
+标签训练一个 KinematicTCN，使用与实验三相同的运动学分窗、repetition 划分方式、
+模型形状及指标辅助函数。输出写入 06_diagnostics/db2_angle_sanity。
 """
 
 from __future__ import annotations
@@ -76,7 +75,7 @@ def _parse_int_list(value: str | list[int]) -> list[int]:
 def _make_strict_rep_split(repetitions: np.ndarray, validation_rep: int,
                            train_reps: tuple[int, ...] = (1, 3, 4, 6),
                            test_reps: tuple[int, ...] = (2, 5)) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Hold out one complete training repetition for validation without window overlap."""
+    """留出一个完整训练 repetition 用于验证，避免窗口重叠。"""
     if int(validation_rep) not in train_reps:
         raise ValueError(f"validation_rep={validation_rep} must be one of train_reps={train_reps}")
     reps = np.asarray(repetitions, dtype=np.int32)
@@ -130,7 +129,7 @@ def _load_config() -> tuple[dict, dict]:
         config[f"regressor_{key}"] = value
     config["diag_subjects"] = diag.get("subjects", [1, 2])
     config["diag_exercises"] = diag.get("exercises", [1])
-    # DB2 sanity inherits the locked Exp3 visualization and dynamic settings.
+    # DB2 自检沿用已锁定的 Exp3 可视化与动态设置。
     config["diag_viz_trials_per_subject"] = int(config["regressor_viz_trials_per_subject"])
     config["diag_dynamic_min_ptp"] = float(config["regressor_dynamic_min_ptp"])
     config["diag_dynamic_viz_top_k"] = int(config["regressor_dynamic_viz_top_k"])
@@ -379,7 +378,7 @@ def _lag_corr_curve(source: np.ndarray, target: np.ndarray, lag_max: int) -> dic
     corrs = []
     for lag in lags:
         if lag > 0:
-            # Positive lag means source/EMG leads target/glove by lag samples.
+            # 正时滞表示源信号/EMG 比目标/手套信号提前 lag 个采样点。
             sx, ty = source[:-lag], target[lag:]
         elif lag < 0:
             sx, ty = source[-lag:], target[:lag]
@@ -608,7 +607,7 @@ def _smooth_predictions(pred: np.ndarray, window: int = 9, polyorder: int = 2) -
 def _reconstruct_window_starts(data_loader: NinaProDataLoader, subject_id: int,
                                exercises: list[int], config: dict,
                                expected_repetitions: np.ndarray) -> np.ndarray:
-    """Rebuild prepare_kinematics_data window starts without changing that helper."""
+    """在不修改 prepare_kinematics_data 的前提下重建其窗口起点。"""
     data = data_loader.load_db2_subject(subject_id, exercises)
     factor = int(config["orig_fs"] / config["target_fs"])
     labels = data.get("restimulus", data["stimulus"])[::factor]
@@ -632,7 +631,7 @@ def _reconstruct_window_starts(data_loader: NinaProDataLoader, subject_id: int,
 
 def _smooth_continuous_prediction(values: np.ndarray, valid_mask: np.ndarray,
                                   window: int, polyorder: int = 2) -> np.ndarray:
-    """Smooth each contiguous predicted timeline separately, never across activity gaps."""
+    """分别平滑各连续预测时间段，绝不跨越活动间隙。"""
     result = values.copy()
     valid_positions = np.flatnonzero(valid_mask)
     if len(valid_positions) == 0:
@@ -648,7 +647,7 @@ def _smooth_continuous_prediction(values: np.ndarray, valid_mask: np.ndarray,
 
 def _overlap_fuse_predictions(pred: np.ndarray, target: np.ndarray,
                               window_starts: np.ndarray, smooth_window: int | None = None) -> tuple[np.ndarray, dict]:
-    """Uniform overlap-add fusion using only model outputs and known window positions."""
+    """仅使用模型输出和已知窗口位置进行均匀重叠相加融合。"""
     if len(pred) != len(window_starts) or len(target) != len(window_starts):
         raise ValueError("Prediction, target, and window-start counts must match")
     if len(pred) == 0:
@@ -735,7 +734,7 @@ def _trajectory_method_result(pred: np.ndarray, target: np.ndarray, dynamic_indi
 def _build_overlap_validation_candidates(pred: np.ndarray, target: np.ndarray,
                                          window_starts: np.ndarray, dynamic_min_ptp: float,
                                          smooth_windows: list[int]) -> dict:
-    """Evaluate predeclared fusion/post-smoothing candidates on validation output only."""
+    """仅在验证输出上评估预先声明的融合/后平滑候选。"""
     scores = EXP3.compute_dynamic_angle_scores(target, "global_max_ptp")
     dynamic_indices = np.flatnonzero(scores >= float(dynamic_min_ptp)).astype(np.int64)
     candidates = {}
@@ -788,7 +787,7 @@ def _parse_output_pipeline(value: str) -> dict:
 
 
 def _fit_channelwise_affine(pred: np.ndarray, target: np.ndarray) -> dict:
-    """Fit y=a*x+b on validation output only; it never sees test labels."""
+    """仅在验证输出上拟合 y=a*x+b，不读取测试标签。"""
     x = np.asarray(pred, dtype=np.float64).reshape(-1, pred.shape[-1])
     y = np.asarray(target, dtype=np.float64).reshape(-1, target.shape[-1])
     x_mean = x.mean(axis=0)
@@ -799,7 +798,7 @@ def _fit_channelwise_affine(pred: np.ndarray, target: np.ndarray) -> dict:
     gain = np.ones_like(x_mean)
     valid = denominator > 1e-10
     gain[valid] = numerator[valid] / denominator[valid]
-    # Bound a low-capacity correction so one validation repetition cannot explode a channel.
+    # 限制低容量校正幅度，避免单次验证重复使某个通道数值失控。
     gain = np.clip(gain, 0.25, 4.0)
     bias = y_mean - gain * x_mean
     return {
@@ -842,7 +841,7 @@ def _build_output_pipeline_validation_candidates(pred: np.ndarray, target: np.nd
                                                  dynamic_min_ptp: float, config: dict,
                                                  fusions: list[str], filters: list[str],
                                                  calibrations: list[str]) -> dict:
-    """Compare output-only candidates on validation windows; test labels are not accessed."""
+    """在验证窗口上比较仅作用于输出的候选，不读取测试标签。"""
     scores = EXP3.compute_dynamic_angle_scores(target, "global_max_ptp")
     dynamic_indices = np.flatnonzero(scores >= float(dynamic_min_ptp)).astype(np.int64)
     candidates = {}

@@ -1,4 +1,4 @@
-"""Validation-only MC-dropout uncertainty screen against DB3 all-channel Oracle gains."""
+"""仅使用验证集，对照 DB3 全通道 Oracle 收益筛查 MC-dropout 不确定性。"""
 from __future__ import annotations
 
 import argparse

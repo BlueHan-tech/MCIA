@@ -1,20 +1,16 @@
-"""Empirical-null calibration of the MQP mask threshold on healthy DB2 subjects.
+"""在健康 DB2 被试上对 MQP 掩码阈值进行经验零分布校准。
 
-Rationale: DB3 amputee recordings are the only place genuine residual-limb
-electrode failures occur, but we have no ground truth there. Healthy DB2
-subjects (same NinaPro family: 12 channels, 2 kHz) provide an empirical null:
-their flag rate approximates the detector's false-positive rate.
+依据：DB3 截肢者记录中可能存在真实残肢电极故障，但没有对应真值。健康 DB2
+被试（同属 NinaPro 系列：12 通道、2 kHz）提供经验零分布，其标记率近似检测器
+的误报率。
 
-Pre-declared decision rule (fixed before looking at results):
-  choose the smallest threshold whose pooled healthy flag rate is <= 5%,
-  i.e. the healthy 95th percentile of per-channel-second p values.
-  If the current 0.20 already satisfies the bound, the calibration validates
-  it and no change is proposed.
+预先声明的决策规则（查看结果前固定）：
+  选择使健康数据合并标记率 <=5% 的最小阈值，即健康“通道-秒”p 值的第 95 分位数。
+  若当前 0.20 已满足该边界，则校准支持保留该值，不提出修改。
 
-Hygiene: DB2 train/val subjects only (S33-S40 test subjects untouched);
-active intervals only (restimulus != 0); E1+E2; exact same MQP code path
-(utils.db3_quality_mask.mqp_probability) as the DB3 mask. Writes only to
-<run>/06_diagnostics/.
+数据纪律：仅使用 DB2 训练/验证被试（不触碰 S33-S40 测试被试）；仅使用动作区间
+（restimulus !=0）；E1+E2；MQP 代码路径与 DB3 掩码完全相同
+（utils.db3_quality_mask.mqp_probability）。仅写入 <run>/06_diagnostics/。
 """
 
 from __future__ import annotations
@@ -37,7 +33,7 @@ import yaml
 from data.ninapro_loader import NinaProDataLoader
 from utils.db3_quality_mask import _runs, mqp_probability
 
-SUBJECTS = list(range(1, 11))          # DB2 S01-S10, train split only
+SUBJECTS = list(range(1, 11))          # DB2 S01-S10，仅训练划分
 EXERCISES = [1, 2]
 TARGET_RATE = 0.05
 THRESHOLD_GRID = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40]

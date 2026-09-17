@@ -1,9 +1,8 @@
-"""CPU-only full-scale preview: MCIA vs CP-WOPT on one validation subject.
+"""仅用 CPU 的全规模预览：在一名验证被试上比较 MCIA 与 CP-WOPT。
 
-Answers "does the smoke-scale CP advantage survive at full window count"
-without touching the GPU (which is busy with the S29-S32 rehearsal).
-Uses validation subject S29 with the frozen benchmark mask seed. Same uniform
-delivery as §7.5. Dev iteration evidence, disclosed.
+回答“冒烟测试规模下 CP 的优势在全量窗口上是否仍存在”，不使用正在执行
+S29-S32 预演的 GPU。使用验证被试 S29 及冻结的基准掩码种子，统一交付规则与
+§7.5 相同。属于明确披露的开发迭代证据。
 """
 
 from __future__ import annotations
@@ -52,7 +51,7 @@ def main() -> None:
     observed = clean * mask
     print(f"S{subject}: {len(clean)} windows, masked {float((mask < 0.5).mean()):.1%}", flush=True)
 
-    # MCIA (CPU)
+    # MCIA（在 CPU 上运行）
     set_seed(42)
     model = build_mcia(config, device)
     ckpt = Path(config["exp1_dir"]) / "checkpoints" / "best_model.pth"
@@ -68,7 +67,7 @@ def main() -> None:
     mcia = torch.cat(outs).numpy()
     print(f"MCIA done in {time.time() - t0:.0f}s", flush=True)
 
-    # CP-WOPT (CPU, per-subject transductive)
+    # CP-WOPT（在 CPU 上运行，逐被试转导式拟合）
     t0 = time.time()
     result = complete_cp_wopt(observed, mask, CPWOPTConfig(rank=8, seed=42 + subject))
     p = torch.from_numpy(np.clip(result.reconstruction, 0.0, 1.0)).float()

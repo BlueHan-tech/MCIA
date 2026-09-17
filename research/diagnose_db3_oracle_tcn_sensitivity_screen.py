@@ -1,4 +1,4 @@
-"""Validation-only label-free TCN sensitivity screen against Oracle gains."""
+"""仅使用验证集，对照 Oracle 收益筛查无标签 TCN 敏感性。"""
 from __future__ import annotations
 
 import argparse

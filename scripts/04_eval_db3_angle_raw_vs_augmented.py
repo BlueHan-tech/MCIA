@@ -68,7 +68,7 @@ ANGLE_SUBSETS = KEY10_SUBSETS
 ANGLE_PLOT_GROUPS = KEY10_PLOT_GROUPS
 def build_tcn(config, n_emg_channels, device):
     if int(config["regressor_n_angle_channels"]) != KEY10_DIM:
-        raise ValueError(f"Exp3 requires fixed Key10 output dimension {KEY10_DIM}.")
+        raise ValueError(f"实验三要求固定的 Key10 输出维度 {KEY10_DIM}。")
     return KinematicTCN(
         n_emg_channels=n_emg_channels,
         n_angle_channels=config["regressor_n_angle_channels"],
@@ -160,7 +160,7 @@ def _load_mcia_from_checkpoint(config, device, checkpoint_path, label):
     model = build_mcia(config, device)
     load_mcia_state_dict(model, checkpoint_path, device)
     model.eval()
-    print(f"  [MCIA:{label}] Loaded: {checkpoint_path}")
+    print(f"  [MCIA:{label}] 已加载：{checkpoint_path}")
     return model, checkpoint_path
 
 
@@ -168,7 +168,7 @@ def load_healthy_prior_mcia(config, device):
     for path in _exp1_checkpoint_candidates(config):
         if path.exists():
             return _load_mcia_from_checkpoint(config, device, path, "healthy_prior")
-    print("  [MCIA:B] No healthy-prior checkpoint found; Group B will be skipped")
+    print("  [MCIA:B] 未找到健康先验检查点；将跳过 B 组")
     return None, None
 
 
@@ -192,7 +192,7 @@ def apply_mcia(mcia_model, emg_windows, masks, device, batch_size=64, domain_id=
         pred = mcia_model(
             emg_masked, raw_time_mask=mask_t, chan_valid_mask=chan_valid, domain_id=domain_t
         )
-        # 交付规则（2026-09-09 采纳）：clip 后对 patch 边界做三点淡化，再复制回观测值。
+        # 交付规则（2026-09-09 采纳）：裁剪后对补丁边界做三点淡化，再复制回观测值。
         pred = patch_boundary_crossfade(pred.clamp(0.0, 1.0), patch_size)
         enh = pred * (1.0 - mask_t) + emg_t * mask_t
         enhanced[start:start + B] = enh.cpu().numpy()
@@ -274,15 +274,15 @@ def _continuous_output_config(config: dict) -> dict:
         "calibration": str(config.get("regressor_output_postprocess_calibration", "none")),
     }
     if settings["fusion"] not in {"uniform_overlap_add", "triangular_overlap_add"}:
-        raise ValueError(f"Unsupported continuous-output fusion: {settings['fusion']}")
+        raise ValueError(f"不支持的连续输出融合方式：{settings['fusion']}")
     if settings["filter_kind"] not in {"none", "savgol", "butterworth"}:
-        raise ValueError(f"Unsupported continuous-output filter: {settings['filter_kind']}")
+        raise ValueError(f"不支持的连续输出滤波器：{settings['filter_kind']}")
     if settings["filter_kind"] == "savgol" and settings["savgol_window"] < 3:
-        raise ValueError("regressor_output_postprocess_savgol_window must be at least 3")
+        raise ValueError("regressor_output_postprocess_savgol_window 必须至少为 3")
     if settings["filter_kind"] == "butterworth" and settings["lowpass_hz"] <= 0:
-        raise ValueError("regressor_output_postprocess_lowpass_hz must be positive")
+        raise ValueError("regressor_output_postprocess_lowpass_hz 必须为正数")
     if settings["calibration"] not in {"none", "affine"}:
-        raise ValueError(f"Unsupported continuous-output calibration: {settings['calibration']}")
+        raise ValueError(f"不支持的连续输出校准方式：{settings['calibration']}")
     return settings
 
 
@@ -299,7 +299,7 @@ def continuous_output_label(config: dict) -> str:
 
 
 def _fit_channelwise_affine(pred: np.ndarray, target: np.ndarray) -> dict:
-    """Fit a bounded per-channel correction using validation predictions only."""
+    """仅使用验证集预测拟合有界的逐通道校正。"""
     x = np.asarray(pred, dtype=np.float64).reshape(-1, pred.shape[-1])
     y = np.asarray(target, dtype=np.float64).reshape(-1, target.shape[-1])
     x_mean = x.mean(axis=0)
@@ -327,11 +327,11 @@ def _apply_channelwise_affine(pred: np.ndarray, calibration: dict) -> np.ndarray
 
 
 def _exercise_separated_window_starts(metadata: dict, config: dict) -> np.ndarray:
-    """Map within-exercise starts to one sparse timeline without cross-exercise fusion."""
+    """把 exercise 内的起点映射到稀疏时间轴，不跨 exercise 融合。"""
     exercises = np.asarray(metadata["exercise"], dtype=np.int16)
     starts = np.asarray(metadata["start"], dtype=np.int64)
     if len(exercises) != len(starts):
-        raise ValueError("Kinematics window metadata is inconsistent")
+        raise ValueError("运动学窗口元数据不一致")
     offsets = {}
     cursor = 0
     gap = 2 * int(config["window_size"])
@@ -347,7 +347,7 @@ def _continuous_output_from_groups(group_preds: dict, target: np.ndarray,
                                    dynamic_test_indices: np.ndarray,
                                    config: dict,
                                    group_calibrations: dict | None = None) -> dict:
-    """Apply the fixed prediction-only continuous-output rule to every Exp3 group."""
+    """对实验三的每个组应用固定的、仅依赖预测值的连续输出规则。"""
     settings = _continuous_output_config(config)
     if not settings["enabled"]:
         return {"enabled": False, "group_predictions": group_preds, "group_results": {}, "payload": {}}
@@ -404,7 +404,7 @@ def _continuous_output_from_groups(group_preds: dict, target: np.ndarray,
             if not (np.array_equal(continuous_times, ref_times) and np.array_equal(dynamic_mask, ref_dynamic)
                     and np.array_equal(overlap_counts, ref_overlap_counts)
                     and np.allclose(continuous_target, ref_target)):
-                raise RuntimeError("Continuous target/time alignment differs between Exp3 groups")
+                raise RuntimeError("实验三各组的连续目标/时间对齐方式不一致")
         processed_groups[group_name] = packed["processed_windows"]
         payload[f"pred_{group_name}_continuous_windows"] = packed["processed_windows"]
         payload[f"pred_{group_name}_continuous"] = continuous_pred
@@ -436,7 +436,7 @@ def _continuous_output_from_groups(group_preds: dict, target: np.ndarray,
 
 
 def compute_dynamic_angle_scores(angle_windows: np.ndarray, score_name: str = "global_max_ptp") -> np.ndarray:
-    """Return one dynamic-angle score per window without changing the split."""
+    """在不改变数据划分的前提下，返回逐窗口动态角度得分。"""
     if angle_windows is None or len(angle_windows) == 0:
         return np.asarray([], dtype=np.float32)
     channel_ptp = np.ptp(angle_windows, axis=1)
@@ -445,7 +445,7 @@ def compute_dynamic_angle_scores(angle_windows: np.ndarray, score_name: str = "g
     elif score_name == "global_max_ptp":
         scores = channel_ptp.max(axis=1)
     else:
-        raise ValueError(f"Unknown regressor_dynamic_score: {score_name}")
+        raise ValueError(f"未知的 regressor_dynamic_score：{score_name}")
     return np.asarray(scores, dtype=np.float32)
 
 
@@ -559,15 +559,15 @@ def build_abc_visualization_selection(
     config: dict,
     low_dynamic_coverage: bool = False,
 ) -> dict:
-    """Select non-overlapping, physically continuous 1280-point test sections."""
+    """选择互不重叠且物理连续的 1280 点测试区段。"""
     target = np.asarray(target)
     times = np.asarray(time_indices, dtype=np.int64)
     overlaps = np.asarray(overlap_counts, dtype=np.int16)
     dynamics = np.asarray(dynamic_mask, dtype=bool)
     if target.ndim != 2 or len(target) != len(times):
-        raise ValueError("continuous target and time indices must be aligned 2-D arrays")
+        raise ValueError("连续目标与时间索引必须是对齐的二维数组")
     if len(overlaps) != len(times) or len(dynamics) != len(times):
-        raise ValueError("continuous overlap and dynamic masks must align with time indices")
+        raise ValueError("连续重叠计数和动态掩码必须与时间索引对齐")
 
     n_requested = max(0, int(config.get("regressor_viz_trials_per_subject", 2)))
     dynamic_top_k = max(0, int(config.get("regressor_dynamic_viz_top_k", n_requested)))
@@ -711,7 +711,7 @@ def _save_abc_anatomy_plot(path: Path, target_segment: np.ndarray, group_segment
         axes_arr[row, col].axis("off")
     for ax in axes_arr[-1, :]:
         if ax.has_data():
-            ax.set_xlabel("time within continuous test segment (s)", fontsize=9)
+            ax.set_xlabel("连续测试区段内时间（秒）", fontsize=9)
 
     handles, labels = axes_arr.flat[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="upper center", ncol=4, fontsize=9, frameon=False,
@@ -773,9 +773,9 @@ def save_abc_comparison_figures(
     dynamics = np.asarray(continuous_dynamic_mask, dtype=bool)
     required_groups = {"A", "B"}
     if target.ndim != 2 or not required_groups.issubset(group_predictions):
-        raise ValueError("continuous A/B figures require target and A/B continuous predictions")
+        raise ValueError("连续 A/B 图要求目标以及 A/B 两组连续预测")
     if any(np.asarray(group_predictions[group]).shape != target.shape for group in required_groups):
-        raise ValueError("continuous A/B predictions must align with the continuous target")
+        raise ValueError("连续 A/B 预测必须与连续目标对齐")
     selection = build_abc_visualization_selection(
         target, times, overlaps, dynamics, cfg, low_dynamic_coverage
     )
@@ -812,7 +812,7 @@ def save_abc_comparison_figures(
 
 def print_tcn_info(config, n_emg_channels=12, fs=200):
     if int(config["regressor_n_angle_channels"]) != KEY10_DIM:
-        raise ValueError(f"Exp3 requires fixed Key10 output dimension {KEY10_DIM}.")
+        raise ValueError(f"实验三要求固定的 Key10 输出维度 {KEY10_DIM}。")
     k = config["regressor_kernel_size"]
     n_layers = config["regressor_n_layers"]
     model = KinematicTCN(
@@ -828,8 +828,8 @@ def print_tcn_info(config, n_emg_channels=12, fs=200):
     print(f"\n{'='*70}")
     print(f"KinematicTCN Key10={KEY10_DIM}  hidden={config['regressor_hidden_dim']}  "
           f"n_layers={n_layers}  kernel={k}  non-causal same-padding")
-    print(f"  Total params : {total_params:,}")
-    print(f"  Receptive field: {rf} samples = {rf/fs*1000:.0f} ms @ {fs} Hz")
+    print(f"  总参数量：{total_params:,}")
+    print(f"  感受野：{rf} 个采样点 = {rf/fs*1000:.0f} ms @ {fs} Hz")
     print(f"{'='*70}\n")
 
 
@@ -843,13 +843,13 @@ def _fmt_nan_summary(vals):
 
 def aggregate_and_print_summary(all_subject_results, groups=("A", "B")):
     print(f"\n{'='*70}")
-    print("Cross-subject summary (nanmean +/- nanstd)")
+    print("跨被试摘要（忽略 NaN 的均值 +/- 标准差）")
     print(f"{'='*70}")
     for grp in groups:
         rows = [r[grp] for r in all_subject_results if r.get(grp) is not None]
         if not rows:
             continue
-        print(f"  Group {grp}:")
+        print(f"  {grp} 组：")
         for subset in ANGLE_SUBSETS:
             sub_rows = [r[subset] for r in rows if r.get(subset)]
             if not sub_rows:
@@ -868,7 +868,7 @@ def aggregate_and_print_summary(all_subject_results, groups=("A", "B")):
 
 def aggregate_continuous_summary(report: dict, groups=("A", "B")) -> None:
     print("\n" + "=" * 70)
-    print("Cross-subject continuous-output summary (nanmean +/- nanstd)")
+    print("跨被试连续输出摘要（忽略 NaN 的均值 +/- 标准差）")
     print("=" * 70)
     for grp in groups:
         rows = [
@@ -877,7 +877,7 @@ def aggregate_continuous_summary(report: dict, groups=("A", "B")) -> None:
         ]
         if not rows:
             continue
-        print(f"  Group {grp}:")
+        print(f"  {grp} 组：")
         for subset in ANGLE_SUBSETS:
             vals = [row["continuous_subsets"].get(subset) for row in rows if row["continuous_subsets"].get(subset)]
             if not vals:
@@ -912,9 +912,9 @@ def print_dynamic_compact_summary(report: dict) -> None:
     if not rows:
         return
     print(f"\n{'='*70}")
-    print("Dynamic-angle compact summary")
+    print("动态角度简要摘要")
     print(f"{'='*70}")
-    print("  subject  train_ratio  test_dynamic/test_total  test_ratio  display_note")
+    print("  被试  训练动态比例  测试动态数/测试总数  测试动态比例  展示说明")
     for sid, train_ratio, test_dyn, test_total, test_ratio, low_train in rows:
         if low_train:
             note = "low train dynamic coverage"
@@ -932,7 +932,7 @@ def print_dynamic_compact_summary(report: dict) -> None:
 
 def evaluate_group(label, emg, angle, train_idx, val_idx, test_idx, config, device,
                    ckpt_path, subject_id, metadata=None):
-    print(f"  Training Group {label} TCN from scratch...")
+    print(f"  正在从头训练 {label} 组 TCN...")
     model, best_val, epochs = train_tcn_on_emg(emg, angle, train_idx, val_idx, config, device)
     torch.save(model.state_dict(), ckpt_path)
     pred, tgt = predict_on_set(model, emg, angle, test_idx, config, device)
@@ -942,7 +942,7 @@ def evaluate_group(label, emg, angle, train_idx, val_idx, test_idx, config, devi
         val_pred, val_target = predict_on_set(model, emg, angle, val_idx, config, device)
         output_calibration = _fit_channelwise_affine(val_pred, val_target)
     subsets = evaluate_subsets(pred, tgt)
-    print(f"  Group {label} best_val={best_val:.5f} epochs={epochs}")
+    print(f"  {label} 组最佳验证值={best_val:.5f}，轮次={epochs}")
     print_subject_results(label, subsets)
     result = {
         "best_val_loss": float(best_val),
@@ -1017,7 +1017,7 @@ def _save_progress(out_path: Path, report: dict, start_ts: float) -> None:
 
 
 def _merge_prediction_payload(npz_path: Path, updates: dict) -> None:
-    """Add deterministic postprocessing fields while preserving legacy prediction fields."""
+    """在保留旧版预测字段的同时，添加确定性后处理字段。"""
     with np.load(npz_path) as data:
         payload = {key: data[key] for key in data.files}
     payload.update(updates)
@@ -1122,13 +1122,13 @@ def main():
     valid_groups = {"A", "B"}
     unknown = run_groups - valid_groups
     if unknown:
-        raise ValueError(f"Unknown Exp3 groups: {sorted(unknown)}")
+        raise ValueError(f"未知的实验三分组：{sorted(unknown)}")
 
     cfg = load_yaml_config(PROJECT_ROOT)
     config = flatten_pipeline_config(cfg)
     device = config["device"]
     if int(config["regressor_n_angle_channels"]) != KEY10_DIM:
-        raise ValueError(f"config.yaml must set exp3_regressor.n_angle_channels to {KEY10_DIM} for Key10.")
+        raise ValueError(f"config.yaml 必须为 Key10 将 exp3_regressor.n_angle_channels 设为 {KEY10_DIM}。")
     set_seed(int(config["regressor_random_seed"]))
 
     data_loader = NinaProDataLoader(config["db2_path"], config["db3_path"], fs=config["orig_fs"])
@@ -1153,7 +1153,7 @@ def main():
     report = _load_existing_report(out_path) or _base_report()
     start_ts = time.time()
     print("=" * 70)
-    print("[Exp3] DB3 fixed-Key10 proxy angle estimation - groups A / B")
+    print("[实验三] DB3 固定 Key10 代理角度估计——A/B 组")
     print("=" * 70)
     _log(log_path, f"Exp3 started | groups={','.join(sorted(run_groups))} | run_dir={run_dir}")
 
@@ -1251,7 +1251,7 @@ def main():
                 exercises=config["regressor_exercises"], db="db3", return_metadata=True,
             )
             train_idx, val_idx, test_idx = make_rep_split(reps)
-            print(f"  rep-split: train={len(train_idx)} val={len(val_idx)} test={len(test_idx)} "
+            print(f"  repetition 划分：训练={len(train_idx)}，验证={len(val_idx)}，测试={len(test_idx)} "
                   "(train=[1,3,4] val=[6] test=[2,5])")
             dynamic_diag = dynamic_split_diagnostics(
                 angle,
@@ -1305,7 +1305,7 @@ def main():
 
             if "B" in run_groups and healthy_mcia is not None:
                 _log(log_path, f"S{subject_id:02d} group B enhance/train")
-                print("  Building Group B enhanced EMG with healthy-prior MCIA...")
+                print("  正在用健康先验 MCIA 构建 B 组增强 EMG...")
                 enh_B = make_enhanced_pool(
                     healthy_mcia, raw_emg, train_idx, val_idx, test_idx, quality_masks, device, domain_id=None,
                     patch_size=int(config["patch_size"]),
@@ -1386,7 +1386,7 @@ def main():
             if group_target is not None:
                 try:
                     if continuous_plot_payload is None:
-                        raise RuntimeError("continuous output is required for 1280-point A/B figures")
+                        raise RuntimeError("生成 1280 点 A/B 图需要连续输出")
                     figure_files, selection = save_abc_comparison_figures(
                         subject_id,
                         {grp: continuous_plot_payload[f"pred_{grp}_continuous"] for grp in ("A", "B")},
@@ -1432,14 +1432,14 @@ def main():
             continue
 
     _save_progress(out_path, report, start_ts)
-    print(f"\nReport saved to: {out_path}")
+    print(f"\n报告已保存至：{out_path}")
     all_subj_results = _subsets_from_report(report)
     aggregate_and_print_summary(all_subj_results, groups=tuple(sorted(run_groups)))
     aggregate_continuous_summary(report, groups=tuple(sorted(run_groups)))
     print_dynamic_compact_summary(report)
     failures = [s for s in report.get("subjects", []) if s.get("status") == "failed"]
     if failures:
-        raise RuntimeError(f"Exp3 finished with failed subjects: {[s['subject_id'] for s in failures]}")
+        raise RuntimeError(f"实验三结束，但以下被试运行失败：{[s['subject_id'] for s in failures]}")
 
 if __name__ == "__main__":
     main()

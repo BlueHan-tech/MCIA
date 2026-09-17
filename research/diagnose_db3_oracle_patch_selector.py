@@ -1,4 +1,4 @@
-"""Train-only EMG patch-selector screen against a fixed validation Oracle."""
+"""仅用训练集拟合 EMG 补丁选择器，并对照固定的验证集 Oracle 筛查。"""
 from __future__ import annotations
 
 import argparse
@@ -33,7 +33,7 @@ def load_exp3():
 
 
 class PatchSelector(nn.Module):
-    """Small full-window dilated CNN that emits one score per time patch."""
+    """覆盖完整窗口的小型膨胀 CNN，为每个时间 patch 输出一个得分。"""
 
     def __init__(self, channels, n_patches):
         super().__init__()

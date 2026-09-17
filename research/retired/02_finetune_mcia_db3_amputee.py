@@ -1,10 +1,8 @@
-"""Retired DB3 subject-adaptation entry point.
+"""已退役的 DB3 被试适配入口。
 
-The former implementation synthetically masked an amputee subject's own DB3
-sEMG and optimized reconstruction against the unmasked recording.  That is not
-a valid target for recovery of genuinely unreliable residual-limb channels, so
-the implementation and its checkpoints are retired.  A replacement must first
-implement the protocol's no-DB3-ground-truth self-supervised objective.
+旧实现对截肢被试自身的 DB3 sEMG 人工遮挡，并以未遮挡记录为目标优化重建。
+该目标不能有效支持真实不可靠残肢通道的恢复，因此实现及其检查点已退役。
+替代方案必须先实现协议规定的不依赖 DB3 真值的自监督目标。
 """
 
 from __future__ import annotations

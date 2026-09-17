@@ -1,7 +1,7 @@
-"""Linear Dynamic Base + Causal TCN Residual —— 开发筛查（E-004）。
+"""线性动态基准 + 因果 TCN 残差 —— 开发筛查（E-004）。
 
 研究问题：小型神经残差能否稳定超过最强归纳式基准
-Ridge + L32 causal linear residual（E-003 被试等权 masked NRMSE = 0.1496）。
+Ridge + L32 因果线性残差（E-003 被试等权的掩码区域 NRMSE = 0.1496）。
 非主方法接入：不改 scripts/、models/、config.yaml、协议或 MCIA；不读取
 S33-S40 / DB3 / glove / 下游 TCN / SGMD-AAE / CP-WOPT；S29-S32 仅前向评估。
 
@@ -19,16 +19,16 @@ base 构造：E-003 同一固定 8,000 窗子集（种子 20260910）、同一�
 冻结神经候选：输入 base/observed=clean*mask/mask 共 36 通道；严格因果 TCN
 hidden=16、kernel=2、dilation=[1,2,4,8,16]（感受野 32 点），输出 12 通道
 非线性残差，输出层零初始化（训练起点严格等于 base）；仅人工掩码位置的
-masked MSE；AdamW lr=1e-3、batch=64、固定 30 epochs；5 seeds
-20260911-20260915 独立训练，无超参搜索/早停/checkpoint 选择/逐被试适配。
+掩码区域 MSE；AdamW lr=1e-3、batch=64、固定 30 轮；5 个随机种子
+20260911-20260915 独立训练，无超参搜索/早停/检查点选择/逐被试适配。
 最终输出 = mask*observed + (1-mask)*completed（观测位不被网络改写）。
 
 短验证（内置）：A 零初始化模型训练前交付输出与 base 逐元素一致；
 B 扰动 t 之后所有输入，t 之前 TCN 输出逐元素不变（训练后模型）；
 C py311 编译（运行前执行）。
 
-判定纪律（预声明）：成功 = 5/5 seed 被试等权 overall NRMSE < 0.1496 且
-每 seed 至少 3/4 被试优于 L32 base；否则失败，失败时不再扩网/加图/改损失/
+判定纪律（预声明）：成功 = 5/5 随机种子的被试等权总体 NRMSE < 0.1496 且
+每个随机种子至少 3/4 被试优于 L32 基准；否则失败，失败时不再扩网/加图/改损失/
 延长训练/换参数。无论成败不进入 S33-S40、下游或主链路。
 """
 

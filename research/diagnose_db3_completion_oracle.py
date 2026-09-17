@@ -1,4 +1,4 @@
-"""Validation-only oracle upper bound for fixed-budget MCIA patch completion."""
+"""固定预算 MCIA 补丁补全的验证集 Oracle 上界。"""
 from __future__ import annotations
 
 import argparse

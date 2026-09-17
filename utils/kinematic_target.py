@@ -55,8 +55,8 @@ def select_key10_angles(angle_values: np.ndarray) -> np.ndarray:
     values = np.asarray(angle_values)
     if values.ndim < 1 or values.shape[-1] != 22:
         raise ValueError(
-            "Key10 target selection requires a last dimension of 22 source glove channels; "
-            f"received shape {values.shape}."
+            "Key10 目标选择要求最后一维包含 22 个源 glove 通道；"
+            f"实际形状为 {values.shape}。"
         )
     return values[..., list(KEY10_GLOVE_INDICES)]
 
@@ -65,8 +65,8 @@ def assert_key10_target(values: np.ndarray, context: str) -> None:
     values = np.asarray(values)
     if values.ndim < 1 or values.shape[-1] != KEY10_DIM:
         raise ValueError(
-            f"{context} must use the fixed {KEY10_DIM}-D {KEY10_TARGET_NAME} target; "
-            f"received shape {values.shape}."
+            f"{context} 必须使用固定的 {KEY10_DIM} 维 {KEY10_TARGET_NAME} 目标；"
+            f"实际形状为 {values.shape}。"
         )
 
 
@@ -94,19 +94,19 @@ def assert_key10_prediction_payload(payload: Mapping[str, np.ndarray], context: 
     missing = sorted(required.difference(payload.keys()))
     if missing:
         raise ValueError(
-            f"{context} is a legacy or incomplete angle-prediction artifact; missing {missing}. "
-            "Create a new run for the fixed Key10 target."
+            f"{context} 是旧版或不完整的角度预测产物；缺少 {missing}。"
+            "请为固定 Key10 目标创建新的 run。"
         )
     assert_key10_target(np.asarray(payload["target"]), f"{context} target")
     if str(np.asarray(payload["angle_data_schema"]).item()) != "e1_e2_exercise_separated_train_only_normalization_v1":
-        raise ValueError(f"{context} does not use the current E1+E2 no-leakage data schema.")
+        raise ValueError(f"{context} 未使用当前 E1+E2 无泄漏数据模式。")
     if tuple(np.asarray(payload["source_exercises"], dtype=np.int64).tolist()) != (1, 2):
-        raise ValueError(f"{context} does not declare the locked E1+E2 source exercises.")
+        raise ValueError(f"{context} 未声明已锁定的 E1+E2 源 exercise。")
     if str(np.asarray(payload["angle_target_name"]).item()) != KEY10_TARGET_NAME:
-        raise ValueError(f"{context} does not declare {KEY10_TARGET_NAME}.")
+        raise ValueError(f"{context} 未声明 {KEY10_TARGET_NAME}。")
     if int(np.asarray(payload["angle_target_dimension"]).item()) != KEY10_DIM:
-        raise ValueError(f"{context} does not declare a {KEY10_DIM}-D target.")
+        raise ValueError(f"{context} 未声明 {KEY10_DIM} 维目标。")
     if tuple(np.asarray(payload["angle_target_source_glove_indices"], dtype=np.int64).tolist()) != tuple(KEY10_GLOVE_INDICES):
-        raise ValueError(f"{context} uses a different source-glove channel mapping.")
+        raise ValueError(f"{context} 使用了不同的源 glove 通道映射。")
     if tuple(str(value) for value in np.asarray(payload["angle_target_channel_names"]).tolist()) != KEY10_CHANNEL_NAMES:
-        raise ValueError(f"{context} uses different Key10 channel names.")
+        raise ValueError(f"{context} 使用了不同的 Key10 通道名称。")

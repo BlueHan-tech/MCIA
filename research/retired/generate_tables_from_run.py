@@ -1,8 +1,7 @@
-"""Retired table-generation entry point.
+"""已退役的表格生成入口。
 
-The prior implementation exported DB3 artificial-masking scores from legacy
-subject-adaptation checkpoints.  Those scores are not evidence for recovery of
-genuinely unreliable residual-limb sEMG and must not be regenerated.
+旧实现从历史被试适配检查点导出 DB3 人工遮挡得分。
+这些得分不能证明真实不可靠残肢 sEMG 的恢复效果，不得重新生成。
 """
 
 from __future__ import annotations

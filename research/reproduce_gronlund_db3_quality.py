@@ -1,13 +1,12 @@
-"""Read-only reproduction of Gronlund et al. (2005) MQP signal-quality method.
+"""只读复现 Gronlund 等人（2005）的 MQP 信号质量方法。
 
-Paper: C. Gronlund et al., "On-line signal quality estimation of multichannel
+论文：C. Gronlund et al., "On-line signal quality estimation of multichannel
 surface electromyograms", Med. Biol. Eng. Comput. 43, 357-364, 2005,
 doi:10.1007/BF02345813.
 
-Sections 2.1 and 2.4 are reproduced without custom detector features or
-thresholds. DB3 is sampled at 2000 Hz while the paper used 2048 Hz, so every
-independent DB3 one-second segment is resampled to 2048 samples before the
-paper's exact 8- and 256-sample descriptor windows are applied.
+按论文第 2.1 和 2.4 节复现，不添加自定义检测特征或阈值。
+DB3 采样率为 2000 Hz，论文为 2048 Hz，因此先将每个独立的 DB3 一秒片段
+重采样为 2048 点，再严格使用论文的 8 点和 256 点描述符窗口。
 """
 from __future__ import annotations
 
@@ -32,10 +31,10 @@ from utils.paper_pipeline import flatten_pipeline_config, load_yaml_config
 
 
 PAPER_FS = 2048
-SHORT_SAMPLES = 8                 # tau_1 = 1/256 s at 2048 Hz
-LONG_SAMPLES = 256                # tau_2 = 1/8 s at 2048 Hz
-OUTER_MULTIPLIER = 1.6            # Section 2.1.2
-POOR_QUALITY_THRESHOLD = 0.05     # Section 3.1
+SHORT_SAMPLES = 8                 # 2048 Hz 下 tau_1 = 1/256 秒
+LONG_SAMPLES = 256                # 2048 Hz 下 tau_2 = 1/8 秒
+OUTER_MULTIPLIER = 1.6            # 第 2.1.2 节
+POOR_QUALITY_THRESHOLD = 0.05     # 第 3.1 节
 EXPECTED_ACTIONS = set(range(1, 49))
 TRAIN_REPETITIONS = {1, 3, 4}
 
@@ -47,7 +46,7 @@ def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
 
 
 def _select_segments(raw: np.ndarray, labels: np.ndarray, repetitions: np.ndarray) -> tuple[np.ndarray, list[dict]]:
-    """Select non-overlapping, one-second, action/repetition-pure training segments."""
+    """选择互不重叠、动作与重复编号均一致的一秒训练片段。"""
     source_samples = 2000
     valid = np.isin(repetitions, list(TRAIN_REPETITIONS)) & np.isin(labels, list(EXPECTED_ACTIONS))
     segments: list[np.ndarray] = []
@@ -65,7 +64,7 @@ def _select_segments(raw: np.ndarray, labels: np.ndarray, repetitions: np.ndarra
 
 
 def _descriptors(one_second_2048: np.ndarray) -> np.ndarray:
-    """Section 2.1.1: K=256 short SDs and repeated long SDs, shape K,N,2."""
+    """第 2.1.1 节：K=256 个短窗标准差及重复的长窗标准差，形状为 K,N,2。"""
     if one_second_2048.shape[0] != PAPER_FS:
         raise ValueError(f"Expected {PAPER_FS} samples, got {one_second_2048.shape[0]}")
     n_channels = one_second_2048.shape[1]
@@ -75,7 +74,7 @@ def _descriptors(one_second_2048: np.ndarray) -> np.ndarray:
 
 
 def _mqp_flags(observations: np.ndarray) -> np.ndarray:
-    """Sections 2.1.2 equations (1)-(4), one MQP outlier flag per channel."""
+    """第 2.1.2 节公式 (1)-(4)：每个通道产生一个 MQP 离群标记。"""
     if observations.ndim != 2 or observations.shape[1] != 2:
         raise ValueError(f"Expected N by 2 observations, got {observations.shape}")
     n_channels = observations.shape[0]
@@ -103,7 +102,7 @@ def _mqp_flags(observations: np.ndarray) -> np.ndarray:
 
 
 def paper_quality(one_second_2000: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Return p_j=D_j/K and K by N flags for one DB3 one-second segment."""
+    """返回一个 DB3 一秒片段的 p_j=D_j/K 和 K×N 标记数组。"""
     if one_second_2000.shape[0] != 2000:
         raise ValueError(f"Expected 2000 samples, got {one_second_2000.shape[0]}")
     resampled = resample_poly(one_second_2000, up=128, down=125, axis=0)
@@ -119,7 +118,7 @@ def _evaluate(loader: NinaProDataLoader, subject_id: int, exercise: int) -> dict
     repetitions = np.asarray(data["repetition"]).reshape(-1)
     usable = min(len(raw), len(labels), len(repetitions))
     raw, labels, repetitions = raw[:usable], labels[:usable], repetitions[:usable]
-    raw -= raw.mean(axis=0, keepdims=True)  # Section 2.4: subtract DC level
+    raw -= raw.mean(axis=0, keepdims=True)  # 第 2.4 节：减去直流分量
     segments, metadata = _select_segments(raw, labels, repetitions)
     probabilities, flags = zip(*(paper_quality(segment) for segment in segments))
     probabilities_array = np.stack(probabilities)

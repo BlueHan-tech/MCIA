@@ -1,8 +1,8 @@
-"""PyCharm-friendly standalone pipeline for the two literature baselines.
+"""便于在 PyCharm 中运行的双文献基线独立流水线。
 
-Running this file creates a new isolated run, prepares the paper-format DB2
-input, and then runs SGMD-AAE followed by CP-WOPT.  It never runs MCIA Exp1,
-Exp3, or Exp4, and it does not reuse or modify another run directory.
+运行本文件会创建独立的新 run，准备论文格式的 DB2 输入，然后依次运行
+SGMD-AAE 和 CP-WOPT。它不会运行 MCIA 实验一、三、四，也不会复用或修改其他
+run 目录。
 """
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def _run_step(run_dir: Path, step_id: str, name: str, command: list[str], log_na
         "log_path": str(log_path),
         "start_time": start_time,
     })
-    print(f"\n{'=' * 88}\n{name}\nCommand: {command_text}\nLog: {log_path}\n{'=' * 88}", flush=True)
+    print(f"\n{'=' * 88}\n{name}\n命令：{command_text}\n日志：{log_path}\n{'=' * 88}", flush=True)
     with log_path.open("w", encoding="utf-8", errors="replace") as log_file:
         process = subprocess.Popen(
             full_command,
@@ -90,8 +90,8 @@ def _run_step(run_dir: Path, step_id: str, name: str, command: list[str], log_na
         "return_code": return_code,
     })
     if return_code != 0:
-        raise RuntimeError(f"{name} failed (return code {return_code}); see {log_path}")
-    print(f"Finished: {name} ({elapsed_seconds:.1f} sec)", flush=True)
+        raise RuntimeError(f"{name} 失败（返回码 {return_code}）；详见 {log_path}")
+    print(f"已完成：{name}（{elapsed_seconds:.1f} 秒）", flush=True)
 
 
 def main() -> None:
@@ -100,8 +100,8 @@ def main() -> None:
     run_dir = get_run_dir(PROJECT_ROOT, cfg, create=True)
     input_path = run_dir / "06_diagnostics" / "literature_baselines" / "db2_sgmd_paper_format_windows.npy"
     os.environ["MCIA_RUN_DIR"] = str(run_dir)
-    print(f"Literature-baseline run: {run_dir}", flush=True)
-    print("This run contains only SGMD-AAE and CP-WOPT; MCIA main experiments are not run.", flush=True)
+    print(f"文献基线运行：{run_dir}", flush=True)
+    print("本次运行仅包含 SGMD-AAE 和 CP-WOPT；不会执行 MCIA 主实验。", flush=True)
     mark_step(run_dir, "literature_pipeline", "running", {"start_time": _now()})
     try:
         _run_step(
@@ -137,7 +137,7 @@ def main() -> None:
         mark_step(run_dir, "literature_pipeline", "failed", {"end_time": _now()})
         raise
     mark_step(run_dir, "literature_pipeline", "completed", {"end_time": _now()})
-    print(f"\nLiterature baselines completed: {run_dir / '06_diagnostics' / 'literature_baselines'}", flush=True)
+    print(f"\n文献基线已完成：{run_dir / '06_diagnostics' / 'literature_baselines'}", flush=True)
 
 
 if __name__ == "__main__":

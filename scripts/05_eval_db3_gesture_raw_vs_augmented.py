@@ -1,4 +1,4 @@
-"""Formal DB3 48-class gesture-recognition main experiment."""
+"""DB3 48 类手势识别正式主实验。"""
 from __future__ import annotations
 
 import argparse
@@ -63,7 +63,7 @@ class GestureDataset(Dataset):
 
 
 class GestureTCN(nn.Module):
-    """Small subject-specific temporal classifier with global time pooling."""
+    """采用全局时间池化的小型被试专属时序分类器。"""
 
     def __init__(self, n_emg_channels: int, n_classes: int, hidden_dim: int, n_layers: int,
                  kernel_size: int, dropout: float):
@@ -82,7 +82,7 @@ class GestureTCN(nn.Module):
 
 def load_db3_windows(loader: NinaProDataLoader, subject_id: int, exercise: int, config: dict,
                      min_label_ratio: float, min_repetition_ratio: float) -> GestureWindows:
-    """Create action-pure windows using train-repetition-only input scaling."""
+    """仅用训练 repetition 拟合输入缩放，并创建动作纯净窗口。"""
     data = loader.load_db3_subject(subject_id, [exercise])
     quality_keep, quality_report = db3_quality_mask(
         data["emg"], data.get("restimulus", data.get("stimulus")), data["repetition"],
@@ -108,7 +108,7 @@ def load_db3_windows(loader: NinaProDataLoader, subject_id: int, exercise: int, 
         masks.append(quality_keep[start:end])
         window_labels.append(label); window_reps.append(repetition); starts.append(start)
     if not raw_windows:
-        raise ValueError(f"S{subject_id:02d} has no action-pure gesture windows")
+        raise ValueError(f"S{subject_id:02d} 没有动作纯净的手势窗口")
     raw_windows = np.stack(raw_windows)
     window_reps = np.asarray(window_reps, dtype=np.int64)
     train_values = raw_windows[np.isin(window_reps, (1, 3, 4))].reshape(-1, raw_windows.shape[-1])
@@ -128,7 +128,7 @@ def split_indices(repetitions: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.n
     validation = np.flatnonzero(repetitions == 6)
     test = np.flatnonzero(np.isin(repetitions, (2, 5)))
     if not len(train) or not len(validation) or not len(test):
-        raise ValueError(f"Invalid split train={len(train)}, val={len(validation)}, test={len(test)}")
+        raise ValueError(f"无效划分：训练={len(train)}，验证={len(validation)}，测试={len(test)}")
     return train, validation, test
 
 
@@ -140,7 +140,7 @@ def class_mapping(train_labels: np.ndarray) -> tuple[dict[int, int], list[int]]:
 def encode_labels(labels: np.ndarray, mapping: dict[int, int]) -> np.ndarray:
     missing = sorted(set(int(value) for value in labels) - set(mapping))
     if missing:
-        raise ValueError(f"Actions missing from train repetitions: {missing}")
+        raise ValueError(f"训练 repetition 中缺少以下动作：{missing}")
     return np.asarray([mapping[int(value)] for value in labels], dtype=np.int64)
 
 
@@ -155,7 +155,7 @@ def healthy_checkpoint(config: dict) -> Path:
     for candidate in candidates:
         if candidate.exists():
             return candidate
-    raise FileNotFoundError("No healthy-prior MCIA checkpoint was found")
+    raise FileNotFoundError("未找到健康先验 MCIA 检查点")
 
 
 @torch.no_grad()
@@ -168,7 +168,7 @@ def apply_mcia(mcia: nn.Module, raw_windows: np.ndarray, masks: np.ndarray,
         mask = torch.as_tensor(masks[start:stop], dtype=torch.float32, device=device)
         valid_channels = (mask.mean(dim=1) > 0.5).float()
         completed = mcia(raw * mask, raw_time_mask=mask, chan_valid_mask=valid_channels)
-        # 交付规则（2026-09-09 采纳）：clip 后对 patch 边界做三点淡化，再复制回观测值。
+        # 交付规则（2026-09-09 采纳）：裁剪后对补丁边界做三点淡化，再复制回观测值。
         completed = patch_boundary_crossfade(completed.clamp(0.0, 1.0), patch_size)
         enhanced[start:stop] = (completed * (1.0 - mask) + raw * mask).cpu().numpy()
     return enhanced, {"mask": masks}
@@ -246,7 +246,7 @@ def train_classifier(emg: np.ndarray, labels: np.ndarray, train_idx: np.ndarray,
         if no_improve >= int(config["regressor_patience"]):
             break
     if best_state is None:
-        raise RuntimeError("GestureTCN produced no validation state")
+        raise RuntimeError("GestureTCN 未产生验证状态")
     model.load_state_dict(best_state)
     return model, {"best_validation_macro_f1": float(best_macro_f1), "epochs": int(len(history)), "history": history}
 
@@ -262,12 +262,12 @@ def predict(model: GestureTCN, emg: np.ndarray, indices: np.ndarray, batch_size:
 def save_confusion_plot(matrix: np.ndarray, action_ids: list[int], title: str, path: Path) -> None:
     fig, axis = plt.subplots(figsize=(8, 7))
     image = axis.imshow(matrix, cmap="Blues", vmin=0)
-    fig.colorbar(image, ax=axis, label="window count")
+    fig.colorbar(image, ax=axis, label="窗口数")
     ticks = np.arange(len(action_ids))
     axis.set_xticks(ticks, [str(value) for value in action_ids], rotation=45, ha="right")
     axis.set_yticks(ticks, [str(value) for value in action_ids])
-    axis.set_xlabel("Predicted action")
-    axis.set_ylabel("True action")
+    axis.set_xlabel("预测动作")
+    axis.set_ylabel("真实动作")
     axis.set_title(title)
     fig.tight_layout()
     fig.savefig(path, dpi=180)
@@ -312,7 +312,7 @@ def main() -> None:
         "subjects": [],
     }
     for subject_id in config["gesture_subjects"]:
-        print(f"\n[Gesture] DB3 S{subject_id:02d}", flush=True)
+        print(f"\n[手势] DB3 S{subject_id:02d}", flush=True)
         raw_parts, b_parts, labels_parts, reps_parts, starts_parts, quality_parts = [], [], [], [], [], []
         detector_report = {}
         for exercise in config["gesture_exercises"]:
@@ -336,7 +336,7 @@ def main() -> None:
         train_idx, val_idx, test_idx = split_indices(windows.repetitions)
         mapping, action_ids = class_mapping(windows.labels[train_idx])
         if action_ids != action_ids_expected:
-            raise ValueError(f"S{subject_id:02d} does not have the locked 48-class train set: {action_ids}")
+            raise ValueError(f"S{subject_id:02d} 不具备锁定的 48 类训练集：{action_ids}")
         encoded = encode_labels(windows.labels, mapping)
         conditions = {"A_raw": np.concatenate(raw_parts), "B_healthy_prior": np.concatenate(b_parts)}
         condition_report = {}
@@ -361,7 +361,7 @@ def main() -> None:
                 "training": training, "test_window_metrics": test_metrics,
                 "test_trial_majority_metrics": trial_metrics, "checkpoint": str(ckpt),
                 "prediction_file": str(pred_path), "confusion_figure": str(fig_path)}
-            print(f"  {condition}: test macro-F1={test_metrics['macro_f1']:.4f} accuracy={test_metrics['accuracy']:.4f}", flush=True)
+            print(f"  {condition}：测试宏平均 F1={test_metrics['macro_f1']:.4f}，准确率={test_metrics['accuracy']:.4f}", flush=True)
         report["subjects"].append({
             "subject_id": int(subject_id), "status": "ok", "n_windows": int(len(windows.emg)),
             "split_sizes": {"train": int(len(train_idx)), "val": int(len(val_idx)), "test": int(len(test_idx))},
@@ -371,7 +371,7 @@ def main() -> None:
             }})
     path = Path(config["gesture_results_path"])
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\n[Gesture] results: {path}", flush=True)
+    print(f"\n[手势] 结果：{path}", flush=True)
 
 
 if __name__ == "__main__":

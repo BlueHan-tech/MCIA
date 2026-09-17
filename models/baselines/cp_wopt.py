@@ -1,13 +1,12 @@
 """Akmal 等人（IEEE Access，2019）的 CP-WOPT 张量补全。
 
-The implementation minimizes the paper's observed-entry objective
+本实现最小化论文中的观测条目目标：
 
     1 / 2 || W * (X - [[A, B, C]]) ||_F^2,
 
-where ``W`` is one for observed entries and zero for missing entries.  The
-factor update is nonlinear conjugate gradient with the Hestenes--Stiefel
-coefficient.  This module deliberately does not inspect targets or labels:
-the caller supplies only an EMG tensor and its observation mask.
+其中，``W`` 在观测条目上为 1，在缺失条目上为 0。因子更新采用带
+Hestenes--Stiefel 系数的非线性共轭梯度法。本模块不读取目标值或标签：
+调用方只提供 EMG 张量及其观测掩码。
 """
 
 from __future__ import annotations
@@ -45,7 +44,7 @@ def relative_mean_error(estimate: np.ndarray, target: np.ndarray) -> float:
     estimate = np.asarray(estimate, dtype=np.float64)
     target = np.asarray(target, dtype=np.float64)
     if estimate.shape != target.shape:
-        raise ValueError(f"Shape mismatch: estimate={estimate.shape}, target={target.shape}")
+        raise ValueError(f"形状不一致：估计={estimate.shape}，目标={target.shape}")
     denominator = float(np.linalg.norm(target.ravel()))
     if denominator <= np.finfo(np.float64).eps:
         return float("nan")
@@ -56,11 +55,11 @@ def _validate_inputs(values: np.ndarray, observed_mask: np.ndarray, rank: int) -
     values = np.asarray(values, dtype=np.float64)
     observed_mask = np.asarray(observed_mask, dtype=np.float64)
     if values.ndim != 3:
-        raise ValueError(f"CP-WOPT requires a third-order tensor, got {values.shape}")
+        raise ValueError(f"CP-WOPT 要求三阶张量，实际形状为 {values.shape}")
     if values.shape != observed_mask.shape:
         raise ValueError(f"values/mask shape mismatch: {values.shape} vs {observed_mask.shape}")
     if not np.isfinite(values[observed_mask > 0.5]).all():
-        raise ValueError("Observed tensor entries must be finite.")
+        raise ValueError("张量中的观测条目必须为有限值。")
     if not 1 <= int(rank) <= min(values.shape):
         raise ValueError(f"rank must be in [1, {min(values.shape)}], got {rank}")
     return values, (observed_mask > 0.5).astype(np.float64, copy=False)

@@ -6,9 +6,8 @@ Exp1：DB2 健康先验补全
 Exp3：DB3 连续关节角度预测（A/B）
 Exp4：DB3 48 类手势识别（A/B）
 
-The optional literature-baseline stage runs only after the default pipeline has
-completed successfully.  It is a task-matched 200-Hz comparison, distinct from
-the standalone paper-format reproduction entry point.
+可选的文献基线阶段仅在默认流水线成功完成后运行。它是任务匹配的 200 Hz 比较，
+与独立的论文格式复现入口不同。
 """
 
 from __future__ import annotations
@@ -76,7 +75,7 @@ def _print_header(title: str) -> None:
 
 
 def _python_command(command: list[str]) -> list[str]:
-    """Keep every stage in the environment used to launch the pipeline."""
+    """让所有阶段都使用启动流水线时的环境。"""
     return [sys.executable, "-u", *command]
 
 
@@ -86,30 +85,30 @@ def _format_command(command: list[str]) -> str:
 
 def _print_expected_outputs(run_dir: Path) -> None:
     _print_header("Expected outputs for this run")
-    print(f"Run dir: {run_dir}", flush=True)
+    print(f"运行目录：{run_dir}", flush=True)
     print("", flush=True)
-    print("Exp1 output:", flush=True)
+    print("实验一输出：", flush=True)
     print(f"  {run_dir / '01_db2_completion'}", flush=True)
     print("    checkpoints/", flush=True)
     print("    metrics/", flush=True)
     print("    figures/", flush=True)
     print("    cache/", flush=True)
     print("", flush=True)
-    print("Exp3 fixed-Key10 continuous angle prediction output:", flush=True)
+    print("实验三固定 Key10 连续角度预测输出：", flush=True)
     print(f"  {run_dir / '03_angle_prediction'}", flush=True)
     print("    metrics/db3_angle_raw_vs_augmented_results.json", flush=True)
     print("    predictions/Sxx_angle_predictions.npz", flush=True)
     print("", flush=True)
-    print("Exp4 A/B gesture-recognition output:", flush=True)
+    print("实验四 A/B 手势识别输出：", flush=True)
     print(f"  {run_dir / '04_gesture_recognition'}", flush=True)
     print("    metrics/, predictions/, figures/, checkpoints/", flush=True)
     print("", flush=True)
-    print("Optional task-matched literature-baseline output:", flush=True)
+    print("可选的任务匹配文献基线输出：", flush=True)
     print(f"  {run_dir / '06_diagnostics' / 'task_matched_literature_baselines'}", flush=True)
-    print("    same 200-Hz envelope/mask, MCIA/SGMD-AAE/CP-WOPT completion and Key10 TCN results", flush=True)
+    print("    相同的 200 Hz 包络/掩码，以及 MCIA/SGMD-AAE/CP-WOPT 补全和 Key10 TCN 结果", flush=True)
     print("", flush=True)
-    print("The default pipeline produces A/B downstream results only.", flush=True)
-    print("C has a separate donor-adaptation development entry and is not implicitly run here.", flush=True)
+    print("默认流水线只生成 A/B 下游结果。", flush=True)
+    print("C 组有独立的供体适配开发入口，不会在此处隐式运行。", flush=True)
 
 
 def _run_step(index: int, total: int, step: dict, run_dir: Path) -> None:
@@ -122,8 +121,8 @@ def _run_step(index: int, total: int, step: dict, run_dir: Path) -> None:
     log_path = run_dir / "05_logs" / step["log_name"]
 
     _print_header(f"[{index}/{total}] {name}")
-    print(f"Command: {command_text}", flush=True)
-    print(f"Log: {log_path}", flush=True)
+    print(f"命令：{command_text}", flush=True)
+    print(f"日志：{log_path}", flush=True)
 
     env = os.environ.copy()
     env.setdefault("PYTHONIOENCODING", "utf-8")
@@ -205,12 +204,12 @@ def _run_step(index: int, total: int, step: dict, run_dir: Path) -> None:
 
     if return_code != 0:
         print("", flush=True)
-        print(f"Step failed: {name}", flush=True)
-        print(f"Return code: {return_code}", flush=True)
-        print(f"Log: {log_path}", flush=True)
-        raise RuntimeError(f"Step failed: {name}")
+        print(f"步骤失败：{name}", flush=True)
+        print(f"返回码：{return_code}", flush=True)
+        print(f"日志：{log_path}", flush=True)
+        raise RuntimeError(f"步骤失败：{name}")
 
-    print(f"\nFinished: {name} ({elapsed_seconds:.1f} sec) | log: {log_path}", flush=True)
+    print(f"\n已完成：{name}（{elapsed_seconds:.1f} 秒）| 日志：{log_path}", flush=True)
 
 
 def main() -> None:
@@ -225,11 +224,11 @@ def main() -> None:
     os.environ["MCIA_RUN_DIR"] = str(run_dir)
 
     _print_header("MCIA full experiment pipeline")
-    print(f"Project root: {PROJECT_ROOT}", flush=True)
-    print(f"Run dir: {run_dir}", flush=True)
-    print(f"Python: {sys.executable}", flush=True)
-    print("Run this file directly to execute the fixed full pipeline.", flush=True)
-    print(f"Literature baselines: {'enabled' if include_literature else 'disabled'}", flush=True)
+    print(f"项目根目录：{PROJECT_ROOT}", flush=True)
+    print(f"运行目录：{run_dir}", flush=True)
+    print(f"Python：{sys.executable}", flush=True)
+    print("直接运行本文件以执行固定的完整流水线。", flush=True)
+    print(f"文献基线：{'已启用' if include_literature else '已禁用'}", flush=True)
     _print_expected_outputs(run_dir)
 
     total_start_time = _now()
@@ -264,8 +263,8 @@ def main() -> None:
         },
     )
     _print_header("MCIA pipeline finished")
-    print(f"Run dir: {run_dir}", flush=True)
-    print(f"Total elapsed: {total_elapsed:.1f} sec", flush=True)
+    print(f"运行目录：{run_dir}", flush=True)
+    print(f"总用时：{total_elapsed:.1f} 秒", flush=True)
 
 
 if __name__ == "__main__":

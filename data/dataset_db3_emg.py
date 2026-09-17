@@ -24,7 +24,7 @@ def prepare_data_db3(data_loader, subject_ids, config, exercises=None, return_me
     window_size, stride = int(config["window_size"]), int(config["stride"])
     train_reps = tuple(config.get("transfer_train_repetitions", (1, 3, 4)))
     all_segments, all_subject_ids, all_reps, all_exercises, all_starts, all_masks = [], [], [], [], [], []
-    print(f"\n[DB3 Data Prep] exercises={exercises}, {config['orig_fs']}Hz -> {config['target_fs']}Hz")
+    print(f"\n[DB3 数据准备] exercise={exercises}，{config['orig_fs']} Hz -> {config['target_fs']} Hz")
 
     for subject_id in subject_ids:
         try:
@@ -68,12 +68,12 @@ def prepare_data_db3(data_loader, subject_ids, config, exercises=None, return_me
                     all_subject_ids.append(int(subject_id)); all_reps.append(int(rep))
                     all_exercises.append(item["exercise"]); all_starts.append(int(start)); subject_count += 1
                     all_masks.append(item["quality_mask"][start:start + window_size].astype(np.float32, copy=False))
-            print(f"  S{subject_id:02d}: {subject_count} segments")
+            print(f"  S{subject_id:02d}：{subject_count} 个片段")
         except Exception as exc:
-            print(f"  S{subject_id}: FAILED - {exc}")
+            print(f"  S{subject_id}：失败 - {exc}")
 
     if not all_segments:
-        raise ValueError("No valid DB3 data")
+        raise ValueError("没有有效的 DB3 数据")
     segments = np.stack(all_segments)
     subject_array = np.asarray(all_subject_ids, dtype=np.int32)
     if not return_metadata:

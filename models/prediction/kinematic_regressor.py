@@ -4,11 +4,11 @@
 提供 EMG → 关节角度 的回归网络，用于验证 EMG 补全对下游任务的提升。
 
 可选架构：
-- TCN (Temporal Convolutional Network)
+- TCN（时间卷积网络）
 - BiLSTM
-- Transformer Regressor
+- Transformer 回归器
 
-TODO: 根据实验需要选择并实现具体架构。当前提供 TCN 作为默认实现。
+待办：根据实验需要选择并实现具体架构。当前提供 TCN 作为默认实现。
 """
 
 import torch
@@ -53,10 +53,10 @@ class TemporalBlock(nn.Module):
 
 class KinematicTCN(nn.Module):
     """
-    TCN 连续关节角度预测模型（非因果，same padding）
+    TCN 连续关节角度预测模型（非因果，等长填充）
 
-    Input:  (B, T, C_emg)   EMG 信号
-    Output: (B, T, C_angle)  关节角度预测
+    输入：(B, T, C_emg) EMG 信号
+    输出：(B, T, C_angle) 关节角度预测
 
     架构：EMG → 6层非因果膨胀卷积 (dilation=[1,2,4,8,16,32]) → Linear → 关节角度
     感受野 = 1 + 2*(k-1)*(1+2+4+8+16+32) = 253 点 @ 200Hz ≈ 1265 ms
@@ -66,7 +66,7 @@ class KinematicTCN(nn.Module):
                  hidden_dim=64, n_layers=6, kernel_size=3, dropout=0.1):
         super().__init__()
         if int(n_angle_channels) != KEY10_DIM:
-            raise ValueError(f"KinematicTCN requires fixed Key10 output dimension {KEY10_DIM}.")
+            raise ValueError(f"KinematicTCN 要求固定的 Key10 输出维度 {KEY10_DIM}。")
 
         layers = []
         in_ch = n_emg_channels
@@ -80,9 +80,9 @@ class KinematicTCN(nn.Module):
 
     def forward(self, emg):
         """
-        Args:
+        参数：
             emg: (B, T, C_emg)
-        Returns:
+        返回值：
             angle_pred: (B, T, C_angle)
         """
         x = emg.transpose(1, 2)      # (B, C_emg, T)
@@ -96,15 +96,15 @@ class KinematicBiLSTM(nn.Module):
     """
     BiLSTM 连续关节角度预测模型（备选架构）
 
-    Input:  (B, T, C_emg)
-    Output: (B, T, C_angle)
+    输入：  (B, T, C_emg)
+    输出： (B, T, C_angle)
     """
 
     def __init__(self, n_emg_channels=12, n_angle_channels=10,
                  hidden_dim=128, n_layers=2, dropout=0.1):
         super().__init__()
         if int(n_angle_channels) != KEY10_DIM:
-            raise ValueError(f"KinematicBiLSTM requires fixed Key10 output dimension {KEY10_DIM}.")
+            raise ValueError(f"KinematicBiLSTM 要求固定的 Key10 输出维度 {KEY10_DIM}。")
 
         self.lstm = nn.LSTM(
             input_size=n_emg_channels,
@@ -118,9 +118,9 @@ class KinematicBiLSTM(nn.Module):
 
     def forward(self, emg):
         """
-        Args:
+        参数：
             emg: (B, T, C_emg)
-        Returns:
+        返回值：
             angle_pred: (B, T, C_angle)
         """
         lstm_out, _ = self.lstm(emg)       # (B, T, hidden*2)
@@ -130,17 +130,17 @@ class KinematicBiLSTM(nn.Module):
 
 class KinematicCNNGRU(nn.Module):
     """
-    Lightweight CNN-GRU continuous joint-angle regressor.
+    轻量 CNN-GRU 连续关节角度回归器。
 
-    Input:  (B, T, C_emg)
-    Output: (B, T, C_angle)
+    输入：(B, T, C_emg)
+    输出：(B, T, C_angle)
     """
 
     def __init__(self, n_emg_channels=12, n_angle_channels=10,
                  hidden_dim=64, n_layers=2, kernel_size=5, dropout=0.1):
         super().__init__()
         if int(n_angle_channels) != KEY10_DIM:
-            raise ValueError(f"KinematicCNNGRU requires fixed Key10 output dimension {KEY10_DIM}.")
+            raise ValueError(f"KinematicCNNGRU 要求固定的 Key10 输出维度 {KEY10_DIM}。")
         padding = kernel_size // 2
         self.frontend = nn.Sequential(
             nn.Conv1d(n_emg_channels, hidden_dim, kernel_size, padding=padding),

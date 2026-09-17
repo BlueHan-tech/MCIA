@@ -1,13 +1,12 @@
-"""Confirmation replication of the 2026-09-09 inference-option screen.
+"""对 2026-09-09 推理选项筛查进行确认性复现。
 
-Same methodology as research/diagnose_completion_inference_options.py (frozen Exp1
-checkpoint, fixed S1/S2/S3 mask seeds 7000+i, 512 windows per subject, paired
-conditions, no training, validation subjects only, no test data), with two
-differences by design:
-  - subjects are S30/S31 (independent confirmation cohort);
-  - the rejected refine2 condition is omitted (path removed from the library).
+方法与 research/diagnose_completion_inference_options.py 相同（冻结实验一
+检查点、固定 S1/S2/S3 掩码种子 7000+i、每被试 512 个窗口、配对条件、不训练、
+仅使用验证被试、不使用测试数据），设计上有两处差异：
+  - 被试为 S30/S31（独立确认队列）；
+  - 不包含已拒绝的 refine2 条件（该路径已从库中移除）。
 
-Writes only to <run>/06_diagnostics/.
+仅写入 <run>/06_diagnostics/。
 """
 
 from __future__ import annotations

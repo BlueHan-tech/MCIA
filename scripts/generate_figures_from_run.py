@@ -57,7 +57,7 @@ def load_config_for_run(run_dir: Path) -> dict:
 def _first_db2_test_subject(config: dict) -> int:
     subjects = config.get("test_subjects") or []
     if not subjects:
-        raise ValueError("No DB2 test_subjects found in run config.")
+        raise ValueError("run 配置中未找到 DB2 test_subjects。")
     return int(subjects[0])
 
 
@@ -88,7 +88,7 @@ def _complete_db2_sample(model, emg_clean: np.ndarray, mask: np.ndarray, config:
 
 
 def regenerate_db2_per_channel_error_heatmap(run_dir: Path, config: dict) -> tuple[Path, Path]:
-    """Export aggregate S1-S4 per-subject x channel masked MAE heatmap for DB2 held-out subjects."""
+    """导出 DB2 留出被试的 S1-S4 聚合“被试 × 通道”缺失区 MAE 热图。"""
     import torch
     import matplotlib
     matplotlib.use("Agg")
@@ -99,11 +99,11 @@ def regenerate_db2_per_channel_error_heatmap(run_dir: Path, config: dict) -> tup
 
     checkpoint = run_dir / "01_db2_completion" / "checkpoints" / "best_model.pth"
     if not checkpoint.exists():
-        raise FileNotFoundError(f"Missing Exp1 checkpoint for per-channel error heatmap: {checkpoint}")
+        raise FileNotFoundError(f"逐通道误差热图缺少实验一检查点：{checkpoint}")
 
     subjects = [int(s) for s in (config.get("test_subjects") or [])]
     if not subjects:
-        raise ValueError("No DB2 test_subjects found in run config for per-channel heatmap.")
+        raise ValueError("run 配置中没有可用于逐通道热图的 DB2 test_subjects。")
 
     out_dir = run_dir / "paper_candidates" / "per_channel_error_heatmap"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -131,7 +131,7 @@ def regenerate_db2_per_channel_error_heatmap(run_dir: Path, config: dict) -> tup
         test_mask = np.isin(repetitions, [2, 5]) if repetitions is not None else np.ones(len(segments), dtype=bool)
         test_indices = np.flatnonzero(test_mask)
         if len(test_indices) == 0:
-            print(f"  DB2 per-channel heatmap S{subject_id:02d}: no Reps 2/5 test windows; skipped.")
+            print(f"  DB2 逐通道热图 S{subject_id:02d}：没有 repetition 2/5 测试窗口；已跳过。")
             continue
 
         abs_sum = np.zeros(n_channels, dtype=np.float64)
@@ -171,10 +171,10 @@ def regenerate_db2_per_channel_error_heatmap(run_dir: Path, config: dict) -> tup
             row[f"Ch{ch + 1}"] = "" if not np.isfinite(mae[ch]) else float(mae[ch])
             row[f"Ch{ch + 1}_masked_count"] = int(count_sum[ch])
         rows.append(row)
-        print(f"  DB2 per-channel heatmap {subject_label}: windows={len(test_indices)} scenarios=S1-S4")
+        print(f"  DB2 逐通道热图 {subject_label}：窗口数={len(test_indices)}，场景=S1-S4")
 
     if not rows:
-        raise RuntimeError("No DB2 held-out subject rows were computed for per-channel error heatmap.")
+        raise RuntimeError("逐通道误差热图未计算出任何 DB2 留出被试行。")
 
     fieldnames = ["subject", "scenario", "n_test_windows"]
     fieldnames += [f"Ch{i}" for i in range(1, n_channels + 1)]
@@ -194,8 +194,8 @@ def regenerate_db2_per_channel_error_heatmap(run_dir: Path, config: dict) -> tup
     ax.set_xticklabels([f"Ch{i}" for i in range(1, n_channels + 1)], fontsize=8)
     ax.set_yticks(np.arange(len(subject_labels)))
     ax.set_yticklabels(subject_labels, fontsize=8.5)
-    ax.set_xlabel("EMG channel", fontsize=9)
-    ax.set_ylabel("DB2 held-out subject", fontsize=9)
+    ax.set_xlabel("EMG 通道", fontsize=9)
+    ax.set_ylabel("DB2 留出被试", fontsize=9)
 
     ax.set_xticks(np.arange(-0.5, n_channels, 1), minor=True)
     ax.set_yticks(np.arange(-0.5, len(subject_labels), 1), minor=True)
@@ -210,17 +210,17 @@ def regenerate_db2_per_channel_error_heatmap(run_dir: Path, config: dict) -> tup
     fig.savefig(png_path, dpi=180, bbox_inches="tight")
     plt.close(fig)
 
-    print(f"  DB2 per-channel masked MAE heatmap PNG: {png_path}")
-    print(f"  DB2 per-channel masked MAE heatmap CSV: {csv_path}")
+    print(f"  DB2 逐通道缺失区 MAE 热图 PNG：{png_path}")
+    print(f"  DB2 逐通道缺失区 MAE 热图 CSV：{csv_path}")
     return png_path, csv_path
 
 
 def _load_db2_scenario_metric_rows(run_dir: Path) -> tuple[list[dict], str]:
-    """Load per-subject DB2 S1-S4 metrics for paper Fig.1."""
+    """为论文图 1 加载 DB2 S1-S4 逐被试指标。"""
     test_root = run_dir / "01_db2_completion" / "figures" / "test"
     report_metrics = run_dir / "01_db2_completion" / "figures" / "report" / "metrics.json"
     if not test_root.exists():
-        raise FileNotFoundError(f"Missing Exp1 per-subject test figures directory: {test_root}")
+        raise FileNotFoundError(f"缺少实验一逐被试测试图目录：{test_root}")
 
     rows: list[dict] = []
     metric_files = sorted(test_root.glob("S*/zeroshot/metrics.json"))
@@ -254,7 +254,7 @@ def _load_db2_scenario_metric_rows(run_dir: Path) -> tuple[list[dict], str]:
     data = json.loads(report_metrics.read_text(encoding="utf-8"))
     per_scenario = data.get("metrics_per_scenario")
     if not isinstance(per_scenario, dict):
-        raise KeyError(f"Missing metrics_per_scenario in aggregate report metrics: {report_metrics}")
+        raise KeyError(f"聚合报告指标中缺少 metrics_per_scenario：{report_metrics}")
     for scenario in ("s1", "s2", "s3"):
         metrics = per_scenario.get(scenario)
         if not isinstance(metrics, dict):
@@ -269,12 +269,12 @@ def _load_db2_scenario_metric_rows(run_dir: Path) -> tuple[list[dict], str]:
             "mask_ratio": metrics.get("mask_ratio", np.nan),
         })
     if not rows:
-        raise RuntimeError(f"No usable S1-S4 metrics found in {report_metrics}")
+        raise RuntimeError(f"在 {report_metrics} 中未找到可用的 S1-S4 指标")
     return rows, f"aggregate metrics from {report_metrics}; no subject dots available"
 
 
 def regenerate_db2_scenario_quant_figure(run_dir: Path) -> tuple[Path, Path]:
-    """Export paper Fig.1: DB2 held-out ScenarioMix quantitative performance."""
+    """导出论文图 1：DB2 留出集 ScenarioMix 定量表现。"""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -350,18 +350,18 @@ def regenerate_db2_scenario_quant_figure(run_dir: Path) -> tuple[Path, Path]:
     plt.close(fig)
 
     n_subjects = len({r["subject"] for r in rows if r.get("source_level") == "subject"})
-    print(f"  DB2 Fig.1 source: {source_note}")
+    print(f"  DB2 图 1 来源：{source_note}")
     if has_subject_rows:
-        print(f"  DB2 Fig.1 subject dots: n={n_subjects}")
+        print(f"  DB2 图 1 被试散点数：n={n_subjects}")
     else:
-        print("  DB2 Fig.1: per-subject scenario data unavailable; plotted aggregate metrics only.")
-    print(f"  DB2 Fig.1 PNG: {png_path}")
-    print(f"  DB2 Fig.1 CSV: {csv_path}")
+        print("  DB2 图 1：逐被试场景数据不可用；仅绘制聚合指标。")
+    print(f"  DB2 图 1 PNG：{png_path}")
+    print(f"  DB2 图 1 CSV：{csv_path}")
     return png_path, csv_path
 
 
 def regenerate_db2_fig2_candidates(run_dir: Path, config: dict) -> int:
-    """Export paper Fig.2 DB2 completion candidates without baselines or observed-zero lines."""
+    """导出论文图 2 的 DB2 补全候选图，不含基线或观测零值曲线。"""
     import torch
     from data.dataset_db2_emg import prepare_data_db2
     from data.ninapro_loader import NinaProDataLoader
@@ -370,7 +370,7 @@ def regenerate_db2_fig2_candidates(run_dir: Path, config: dict) -> int:
 
     checkpoint = run_dir / "01_db2_completion" / "checkpoints" / "best_model.pth"
     if not checkpoint.exists():
-        raise FileNotFoundError(f"Missing Exp1 checkpoint for Fig.2 candidates: {checkpoint}")
+        raise FileNotFoundError(f"图 2 候选图缺少实验一检查点：{checkpoint}")
 
     subject_id = _first_db2_test_subject(config)
     data_loader = NinaProDataLoader(config["db2_path"], config["db3_path"], fs=config["orig_fs"])
@@ -378,7 +378,7 @@ def regenerate_db2_fig2_candidates(run_dir: Path, config: dict) -> int:
     test_mask = np.isin(repetitions, [2, 5]) if repetitions is not None else np.ones(len(segments), dtype=bool)
     test_indices = np.flatnonzero(test_mask)
     if len(test_indices) == 0:
-        raise RuntimeError(f"No DB2 Reps 2/5 test windows found for S{subject_id:02d}.")
+        raise RuntimeError(f"S{subject_id:02d} 没有 DB2 repetition 2/5 测试窗口。")
 
     device = str(config.get("device", "cpu"))
     model = build_mcia(config, device)
@@ -450,8 +450,8 @@ def regenerate_db2_fig2_candidates(run_dir: Path, config: dict) -> int:
             break
 
     if whole_saved == 0:
-        print("  DB2 Fig.2 whole_channel: no whole-channel missing samples found in deterministic scan; skipped.")
-    print(f"  DB2 Fig.2 S{subject_id:02d}: {len(saved)} candidate figures -> {out_root}")
+        print("  DB2 图 2 整通道缺失：确定性扫描未找到整通道缺失样本；已跳过。")
+    print(f"  DB2 图 2 S{subject_id:02d}：{len(saved)} 张候选图 -> {out_root}")
     for path in saved:
         print(f"    {path}")
     return len(saved)
@@ -462,7 +462,7 @@ def regenerate_exp3_abc_figures(run_dir: Path, config: dict) -> int:
     out_dir = run_dir / "03_angle_prediction" / "figures" / "comparison"
     count = 0
     if not pred_dir.exists():
-        print(f"  Exp3 skipped: prediction directory not found: {pred_dir}")
+        print(f"  已跳过实验三：未找到预测目录：{pred_dir}")
         return 0
     plot_groups = getattr(exp3_figs, "ANGLE_PLOT_GROUPS", {})
     expected_groups = ",".join(plot_groups.keys()) if plot_groups else "anatomy"
@@ -478,7 +478,7 @@ def regenerate_exp3_abc_figures(run_dir: Path, config: dict) -> int:
                         subject.get("low_dynamic_train_coverage", False)
                     )
         except Exception as exc:
-            print(f"  Exp3 warning: could not read dynamic coverage report: {exc}")
+            print(f"  实验三警告：无法读取动态覆盖率报告：{exc}")
     for npz_path in sorted(pred_dir.glob("S*_angle_predictions.npz")):
         subject_id = int(npz_path.stem.split("_")[0].replace("S", ""))
         with np.load(npz_path) as data:
@@ -538,28 +538,28 @@ def main() -> None:
         if run_dir is None:
             raise FileNotFoundError(
                 f"No existing current-project run found under {output_root / 'run'}. "
-                "Set MCIA_RUN_DIR or run scripts/run_all_experiments.py first."
+                "请设置 MCIA_RUN_DIR，或先运行 scripts/run_all_experiments.py。"
             )
     os.environ["MCIA_RUN_DIR"] = str(run_dir)
     config = load_config_for_run(run_dir)
 
     print("=" * 80)
-    print("Generate figures from existing run")
+    print("从已有 run 生成图表")
     print("=" * 80)
-    print(f"Run dir: {run_dir}")
+    print(f"运行目录：{run_dir}")
 
     fig1_png, fig1_csv = regenerate_db2_scenario_quant_figure(run_dir)
     heatmap_png, heatmap_csv = regenerate_db2_per_channel_error_heatmap(run_dir, config)
     db2_count = regenerate_db2_fig2_candidates(run_dir, config)
     exp3_count = regenerate_exp3_abc_figures(run_dir, config)
-    print(f"DB2 Fig.1 quantitative figure: {fig1_png}")
-    print(f"DB2 Fig.1 source CSV: {fig1_csv}")
-    print(f"DB2 per-channel masked MAE heatmap: {heatmap_png}")
-    print(f"DB2 per-channel masked MAE CSV: {heatmap_csv}")
-    print(f"DB2 Fig.2 candidate figures: {db2_count}")
-    print(f"Exp3 anatomy A/B figures: {exp3_count}")
+    print(f"DB2 图 1 定量图：{fig1_png}")
+    print(f"DB2 图 1 来源 CSV：{fig1_csv}")
+    print(f"DB2 逐通道缺失区 MAE 热图：{heatmap_png}")
+    print(f"DB2 逐通道缺失区 MAE CSV：{heatmap_csv}")
+    print(f"DB2 图 2 候选图数量：{db2_count}")
+    print(f"实验三解剖分组 A/B 图数量：{exp3_count}")
 
-    print("Done.")
+    print("完成。")
 
 
 if __name__ == "__main__":

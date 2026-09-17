@@ -1,4 +1,4 @@
-"""Small validation-only feasibility test for EMG-only completion benefit prediction."""
+"""仅使用验证集的小规模可行性测试：能否只凭 EMG 预测补全收益。"""
 from __future__ import annotations
 
 import argparse

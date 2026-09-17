@@ -1,4 +1,4 @@
-"""Validation-only fixed periodic MCIA completion screen."""
+"""仅使用验证集筛查固定周期的 MCIA 补全。"""
 from __future__ import annotations
 
 import argparse

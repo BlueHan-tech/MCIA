@@ -1,21 +1,19 @@
-"""Small-scale downstream angle A/B for inference-level completion options.
+"""推理阶段补全选项的小规模下游角度 A/B 比较。
 
-Dev screen only, leak-free by construction:
-  - DB3 S05, E1+E2, fixed repetition split (train 1/3/4, validation 6);
-  - test repetitions (2/5) are split off but NEVER used for training,
-    checkpoint selection, or reporting;
-  - four paired conditions share the frozen healthy-prior MCIA checkpoint,
-    identical quality masks, TCN architecture, training rules, and seed;
-    only the input representation differs:
-      raw              A-style raw sEMG
-      enhanced_default B-style completion (clip + copy-back)
-      enhanced_boundary same + patch-boundary cross-fade
-      enhanced_unc015  MC-Dropout uncertainty-gated completion (8 samples)
-  - TCN budget compressed to 40 epochs / patience 10 for the dev screen and
-    recorded; all conditions share the identical budget.
+仅用于开发筛查，设计上避免泄露：
+  - DB3 S05，E1+E2，固定重复划分（训练 1/3/4，验证 6）；
+  - 测试重复（2/5）独立划出，绝不用于训练、检查点选择或报告；
+  - 四个配对条件共享冻结的健康先验 MCIA 检查点、相同质量掩码、
+    TCN 结构、训练规则和随机种子，仅输入表示不同：
+      raw              A 式原始 sEMG
+      enhanced_default B 式补全（裁剪并回填观测值）
+      enhanced_boundary 在上述补全基础上加入补丁边界交叉淡化
+      enhanced_unc015  MC-Dropout 不确定性门控补全（8 次采样）
+  - 开发筛查的 TCN 预算缩减为 40 轮 / 早停耐心值 10，并如实记录；
+    所有条件使用完全相同的预算。
 
-Reports window-level Key10 subset metrics on VALIDATION windows only.
-Writes only to <run>/06_diagnostics/.
+仅在验证窗口上报告窗口级 Key10 子集指标。
+仅写入 <run>/06_diagnostics/。
 """
 
 from __future__ import annotations

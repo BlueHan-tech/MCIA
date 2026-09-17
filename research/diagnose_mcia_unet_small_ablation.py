@@ -1,8 +1,7 @@
-"""Small DB2 ablation: flat MCIA head versus a temporal U-Net token decoder.
+"""小规模 DB2 消融：扁平 MCIA 输出头与时序 U-Net 标记解码器比较。
 
-This diagnostic is intentionally isolated from the Exp1/Exp2/Exp3 main path. It
-uses fixed subjects, repetitions, masks, and seeds to test one architecture
-direction quickly before any full-scale training is considered.
+本诊断有意独立于 Exp1/Exp2/Exp3 主链路，使用固定被试、重复、掩码和随机种子，
+在考虑完整规模训练之前快速验证一个结构方向。
 """
 
 from __future__ import annotations
@@ -69,7 +68,7 @@ def load_config() -> Dict:
 
 
 class TemporalUNetResidual(nn.Module):
-    """Identity-initialized two-scale temporal U-Net over MCIA patch tokens."""
+    """作用于 MCIA 补丁标记的双尺度时序 U-Net，初始化为恒等映射。"""
 
     def __init__(self, embed_dim: int):
         super().__init__()
@@ -112,7 +111,7 @@ class TemporalUNetResidual(nn.Module):
 
 
 class MCIAWithTemporalUNet(MCIA):
-    """The current MCIA backbone with one multiscale residual decoder."""
+    """当前 MCIA 主干搭配一个多尺度残差解码器。"""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -174,7 +173,7 @@ class MCIAWithTemporalUNet(MCIA):
 
 
 class DilatedResidualBlock(nn.Module):
-    """Lightweight non-causal depthwise-separable TCN block."""
+    """轻量非因果深度可分离 TCN 块。"""
 
     def __init__(self, embed_dim: int, dilation: int, dropout: float):
         super().__init__()
@@ -197,7 +196,7 @@ class DilatedResidualBlock(nn.Module):
 
 
 class NonCausalTCNResidual(nn.Module):
-    """Identity-initialized dilated TCN refinement over MCIA patch tokens."""
+    """作用于 MCIA 补丁标记的膨胀 TCN 精修，初始化为恒等映射。"""
 
     def __init__(self, embed_dim: int, dropout: float):
         super().__init__()
@@ -220,7 +219,7 @@ class NonCausalTCNResidual(nn.Module):
 
 
 class MCIAWithNonCausalTCN(MCIAWithTemporalUNet):
-    """The current MCIA backbone with a non-causal dilated TCN decoder."""
+    """当前 MCIA 主干搭配非因果膨胀 TCN 解码器。"""
 
     def __init__(self, **kwargs):
         dropout = float(kwargs.get("dropout", 0.1))
@@ -297,7 +296,7 @@ def make_loader(data: np.ndarray, batch_size: int, shuffle: bool, seed: int) -> 
 
 
 class EMGImputationLossWithCovariance(EMGImputationLoss):
-    """Add an off-diagonal normalized channel-covariance constraint."""
+    """增加归一化通道协方差的非对角项约束。"""
 
     def __init__(self, covariance_weight: float, **kwargs):
         super().__init__(**kwargs)

@@ -1,8 +1,7 @@
-"""Read-only DB3 E1 CyberGlove label-quality audit for all 22 source channels.
+"""对 DB3 E1 全部 22 个源通道进行 CyberGlove 标签质量只读审计。
 
-This diagnostic does not train a model, alter a split, or write any dataset
-files. It measures whether raw source glove labels, and the fixed Key10 target
-derived from them, contain usable continuous variation.
+本诊断不训练模型、不改变划分，也不写入数据集文件。它衡量原始 glove 标签及其
+派生的固定 Key10 目标是否包含可用的连续变化。
 """
 from __future__ import annotations
 

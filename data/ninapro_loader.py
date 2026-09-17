@@ -70,7 +70,7 @@ class NinaProDataLoader:
         }
 
     def bandpass_filter(self, emg, lowcut=20, highcut=450):
-        """甯﹂€氭护娉?"""
+        """带通滤波。"""
         nyq = 0.5 * self.fs
         low = lowcut / nyq
         high = highcut / nyq
@@ -79,7 +79,7 @@ class NinaProDataLoader:
         return signal.sosfilt(sos, np.flip(filtered, axis=0), axis=0)[::-1]
 
     def notch_filter(self, emg, freq=50, Q=30):
-        """闄锋尝婊ゆ尝锛堝幓闄ゅ伐棰戝共鎵帮級"""
+        """陷波滤波（去除工频干扰）。"""
         nyq = 0.5 * self.fs
         w0 = freq / nyq
         b, a = signal.iirnotch(w0, Q)
@@ -98,9 +98,9 @@ class NinaProDataLoader:
         """
         将 EMG 信号分段
 
-        Returns:
-            segments: (n_segments, window_size, n_channels)
-            labels: (n_segments,)
+        返回：
+            segments：形状为 (n_segments, window_size, n_channels) 的信号片段
+            labels：形状为 (n_segments,) 的标签
         """
         segments = []
         labels = []

@@ -1,4 +1,4 @@
-"""Read-only audit of Exp3 RuleAnomalyDetector coverage for DB3 subjects."""
+"""对实验三 RuleAnomalyDetector 在 DB3 被试上的覆盖情况进行只读审计。"""
 from __future__ import annotations
 
 import argparse

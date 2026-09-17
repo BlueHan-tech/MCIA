@@ -1,8 +1,7 @@
 """SGMD-AAE 文献基线（Zou、Cheng 和 Han，2023）。
 
-Reported architecture and hyperparameters are implemented verbatim where the
-paper specifies them.  The paper does not specify convolution padding, final
-linear dimensions, or epoch count; those are explicit caller choices.
+论文明确给出的架构和超参数按原文实现。论文未明确卷积填充方式、最终线性层
+维度或训练轮数；这些设置由调用方显式选择。
 """
 from __future__ import annotations
 
@@ -55,7 +54,7 @@ class SelfMaskPartialConv2d(nn.Module):
         if mask.shape[1] == 1 and x.shape[1] != 1:
             mask = mask.expand(-1, x.shape[1], -1, -1)
         if mask.shape != x.shape:
-            raise ValueError(f"Self-mask shape {mask.shape} must match feature shape {x.shape}")
+            raise ValueError(f"自掩码形状 {mask.shape} 必须与特征形状 {x.shape} 一致")
         masked = self._pad(x * mask)
         padded_mask = self._pad(mask)
         output = F.conv2d(masked, self.conv.weight, bias=None, stride=self.conv.stride)
@@ -107,7 +106,7 @@ class SGMDAAEGenerator(nn.Module):
 
     def forward(self, incomplete: torch.Tensor, self_mask: torch.Tensor) -> torch.Tensor:
         if incomplete.ndim != 4 or incomplete.shape[1] != 1:
-            raise ValueError("Expected sEMG image input shaped (B,1,time,channels).")
+            raise ValueError("sEMG 图像输入形状应为 (B,1,time,channels)。")
         x, mask = incomplete, self_mask
         encoded: list[tuple[torch.Tensor, torch.Tensor]] = []
         for block in self.enc:

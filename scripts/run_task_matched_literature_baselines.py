@@ -1,14 +1,11 @@
-"""Task-matched MCIA / SGMD-AAE / CP-WOPT comparison for DB3 angle estimation.
+"""面向 DB3 角度估计的任务匹配 MCIA / SGMD-AAE / CP-WOPT 比较。
 
-All methods receive the same 200-Hz envelope windows and the same DB3 quality
-mask.  MCIA and SGMD-AAE are pretrained only on the configured healthy DB2
-training subjects; CP-WOPT is fit separately within each unlabeled DB3 split.
-Every completed representation is then evaluated with a freshly initialized,
-otherwise identical Key10 KinematicTCN.  CP-WOPT is therefore explicitly
-reported as a split-transductive baseline, not as an inductive model.
+所有方法使用相同的 200 Hz 包络窗口和 DB3 质量掩码。MCIA 与 SGMD-AAE 仅在
+配置指定的健康 DB2 训练被试上预训练；CP-WOPT 在各无标签 DB3 划分内分别拟合。
+随后用重新初始化且其余设置完全相同的 Key10 KinematicTCN 评估每种补全表示。
+因此，CP-WOPT 明确报告为划分内转导基线，而非归纳式模型。
 
-This is a task adaptation of the two literature methods.  It is deliberately
-separate from their paper-format 2-kHz reproduction entry point.
+这是两种文献方法的任务适配版本，与论文格式的 2 kHz 复现入口明确分离。
 """
 from __future__ import annotations
 
@@ -50,7 +47,7 @@ def _load_exp3_module():
     path = PROJECT_ROOT / "scripts" / "04_eval_db3_angle_raw_vs_augmented.py"
     spec = importlib.util.spec_from_file_location("mcia_exp3_angle", path)
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"Cannot load shared Exp3 helpers: {path}")
+        raise RuntimeError(f"无法加载实验三共享辅助模块：{path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -60,7 +57,7 @@ EXP3 = _load_exp3_module()
 
 
 def _masked_metrics(prediction: np.ndarray, target: np.ndarray, observed: np.ndarray) -> dict:
-    """Masked-region completion metrics; ONLY valid where `target` is clean truth.
+    """缺失区补全指标；仅在 `target` 是干净真值的位置有效。
 
     用于有人工遮挡真值的基准（如健康 DB2 受控掩码对比）。DB3 真实质量掩码
     区域的录制信号本身是坏值，对其计算该指标衡量的是"与坏信号的距离"
@@ -69,11 +66,11 @@ def _masked_metrics(prediction: np.ndarray, target: np.ndarray, observed: np.nda
     """
     missing = np.asarray(observed) < 0.5
     if not np.any(missing):
-        raise ValueError("Task-matched comparison needs at least one missing entry.")
+        raise ValueError("任务匹配比较至少需要一个缺失条目。")
     error = np.asarray(prediction)[missing] - np.asarray(target)[missing]
     rmse = float(np.sqrt(np.mean(error ** 2)))
-    # The shared pipeline emits values clipped to [0, 1]; use that frozen peak
-    # rather than a test-window maximum, which would make subjects incomparable.
+    # 共享流水线输出已裁剪至 [0,1]；使用这一冻结峰值，而不是测试窗口最大值，
+    # 否则各被试之间将不可比较。
     nrmse = rmse
     return {
         "masked_count": int(missing.sum()),
@@ -97,7 +94,7 @@ def _scenario_generator(config: dict, seed: int) -> ScenarioMixMaskGenerator:
 
 def _train_sgmd(train_values: np.ndarray, config: dict, epochs: int, batch_size: int, seed: int,
                 checkpoint_path: Path) -> SGMDAAEGenerator:
-    """Pretrain SGMD-AAE on the same healthy DB2 source and mask distribution as MCIA."""
+    """在与 MCIA 相同的健康 DB2 来源和掩码分布上预训练 SGMD-AAE。"""
     device = config["device"]
     set_seed(seed)
     generator = SGMDAAEGenerator().to(device)
@@ -126,7 +123,7 @@ def _train_sgmd(train_values: np.ndarray, config: dict, epochs: int, batch_size:
             loss.backward()
             optimizer_g.step()
             losses.append(float(loss.detach().cpu()))
-        print(f"  SGMD pretrain epoch {epoch + 1}/{epochs}: loss={np.mean(losses):.6f}", flush=True)
+        print(f"  SGMD 预训练轮次 {epoch + 1}/{epochs}：损失={np.mean(losses):.6f}", flush=True)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save({"model": generator.state_dict(), "pretraining": "DB2_200Hz_scenario_mix"}, checkpoint_path)
     return generator.eval()
@@ -145,8 +142,8 @@ def _apply_sgmd(model: SGMDAAEGenerator, values: np.ndarray, observed: np.ndarra
 
 
 def _apply_cp_per_split(values: np.ndarray, observed: np.ndarray, rank: int, seed: int) -> np.ndarray:
-    # CP-WOPT has no inductive prediction map.  It fits factors from each split's
-    # unlabeled observed EMG only; this is logged as split-transductive behavior.
+    # CP-WOPT 没有归纳式预测映射。它仅根据每个划分中无标签的已观测 EMG 拟合因子；
+    # 此行为记录为划分内转导。
     result = complete_cp_wopt(values * observed, observed, CPWOPTConfig(rank=rank, seed=seed))
     return np.clip(result.reconstruction, 0.0, 1.0).astype(np.float32)
 
@@ -181,7 +178,7 @@ def _write_summary(out_dir: Path, rows: list[dict]) -> None:
     means = [aggregate[m]["angle_rmse"]["mean"] for m in methods]
     stds = [aggregate[m]["angle_rmse"]["std"] for m in methods]
     axis.bar(methods, means, yerr=stds, capsize=4)
-    axis.set_title("Key10 angle RMSE (lower)"); axis.tick_params(axis="x", rotation=25); axis.grid(axis="y", alpha=0.25)
+    axis.set_title("Key10 角度 RMSE（越低越好）"); axis.tick_params(axis="x", rotation=25); axis.grid(axis="y", alpha=0.25)
     fig.tight_layout(); fig.savefig(out_dir / "task_matched_summary.png", dpi=160); plt.close(fig)
 
 
@@ -214,25 +211,25 @@ def main() -> None:
         if max_windows > 0:
             db2_train = db2_train[:max_windows]
         if len(db2_train) == 0:
-            raise ValueError("No DB2 healthy-pretraining windows available.")
+            raise ValueError("没有可用的 DB2 健康预训练窗口。")
         if args.skip_sgmd_training:
             if not sgmd_checkpoint.exists():
-                raise FileNotFoundError(f"--skip-sgmd-training requires {sgmd_checkpoint}")
+                raise FileNotFoundError(f"--skip-sgmd-training 要求存在 {sgmd_checkpoint}")
             sgmd = SGMDAAEGenerator().to(config["device"])
             sgmd.load_state_dict(torch.load(sgmd_checkpoint, map_location=config["device"])["model"])
             sgmd.eval()
         else:
-            print(f"Pretraining SGMD-AAE on {len(db2_train)} DB2 200-Hz windows...", flush=True)
+            print(f"正在 {len(db2_train)} 个 DB2 200 Hz 窗口上预训练 SGMD-AAE...", flush=True)
             sgmd = _train_sgmd(db2_train, config, epoch_count, int(settings["sgmd_aae_batch_size"]), seed, sgmd_checkpoint)
         if args.mcia_checkpoint is not None:
             if not args.mcia_checkpoint.is_file():
-                raise FileNotFoundError(f"MCIA checkpoint not found: {args.mcia_checkpoint}")
+                raise FileNotFoundError(f"未找到 MCIA 检查点：{args.mcia_checkpoint}")
             healthy_mcia, mcia_checkpoint = EXP3._load_mcia_from_checkpoint(
                 config, config["device"], args.mcia_checkpoint, "healthy_prior_explicit")
         else:
             healthy_mcia, mcia_checkpoint = EXP3.load_healthy_prior_mcia(config, config["device"])
         if healthy_mcia is None:
-            raise FileNotFoundError("MCIA healthy-prior checkpoint is required; run Exp1 in this run first.")
+            raise FileNotFoundError("需要 MCIA 健康先验检查点；请先在当前 run 中执行实验一。")
         report = {"protocol": {
             "representation": "same DB3 200-Hz envelope, 256x12 windows",
             "mask": "same DB3 quality_mask per window for every method",
@@ -243,13 +240,13 @@ def main() -> None:
                                    "windows": int(len(db2_train)), "mask": "MCIA ScenarioMix"},
         }, "subjects": []}
         for subject_id in config["regressor_db3_subjects"]:
-            print(f"\n--- Task-matched DB3 S{subject_id:02d} ---", flush=True)
+            print(f"\n--- 任务匹配 DB3 S{subject_id:02d} ---", flush=True)
             raw, angle, _, repetitions, metadata = prepare_kinematics_data(
                 data_loader, [subject_id], config, exercises=config["regressor_exercises"], db="db3", return_metadata=True)
             train_idx, val_idx, test_idx = make_rep_split(repetitions)
             observed = metadata["quality_mask"].astype(np.float32)
             if not np.any(observed < 0.5):
-                raise ValueError(f"S{subject_id:02d} has no quality-mask missing entries.")
+                raise ValueError(f"S{subject_id:02d} 没有质量掩码标记的缺失条目。")
             methods = {}
             methods["MCIA"] = EXP3.make_enhanced_pool(healthy_mcia, raw, train_idx, val_idx, test_idx,
                                                         observed, config["device"], patch_size=int(config["patch_size"]))
@@ -266,14 +263,14 @@ def main() -> None:
                                                           config, config["device"], ckpt, subject_id)
                 subject["methods"][method] = {"angle": result["subsets"]}
                 # DB3 真实质量掩码区域无干净真值：不在此计算补全指标
-                # （对坏信号算距离会奖励全零预测，见 _masked_metrics docstring）；
+                # （对坏信号算距离会奖励全零预测，见 _masked_metrics 的文档字符串）；
                 # 补全质量对比在健康 DB2 受控掩码基准（协议 §7.5）进行。
             report["subjects"].append(subject)
             (out_dir / "task_matched_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
         rows = _summary_rows(report["subjects"])
         _write_summary(out_dir, rows)
         mark_step(run_dir, "task_matched_literature_baselines", "completed", {"output": str(out_dir)})
-        print(f"\nComparable results: {out_dir / 'task_matched_summary.json'}", flush=True)
+        print(f"\n可比较结果：{out_dir / 'task_matched_summary.json'}", flush=True)
     except Exception:
         mark_step(run_dir, "task_matched_literature_baselines", "failed", {"output": str(out_dir)})
         raise

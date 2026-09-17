@@ -1,16 +1,13 @@
-"""Protocol §5 C-group (amputee-donor prior) development screen.
+"""协议 §5 C 组（截肢者供体先验）开发筛查。
 
-Adapts the frozen healthy DB2 MCIA prior on the clean donor pool
-(S02/S04/S08/S11, E1+E2, repetitions 1/3/4 only; donor repetition 6 only for
-checkpoint selection).  Candidate settings are compared on the DEV subjects
-S05/S06 using train repetitions to fit each Key10 TCN and validation
-repetition 6 only for reporting.  Test repetitions of every subject are never
-touched.  Pre-declared selection rule: lowest mean S05/S06 validation global
-RMSE across candidates; B (healthy prior, domain_id=None) is the in-table
-reference.
+在干净供体池上适配冻结的健康 DB2 MCIA 先验（S02/S04/S08/S11，E1+E2，仅使用
+repetition 1/3/4；供体 repetition 6 仅用于检查点选择）。候选设置在开发被试
+S05/S06 上比较：训练 repetition 用于拟合各 Key10 TCN，验证 repetition 6
+仅用于报告。不读取任何被试的测试 repetition。预先声明的选择规则为候选中
+S05/S06 验证集全局 RMSE 均值最低者；B 组（健康先验，domain_id=None）作为表内参照。
 
-Writes checkpoints to <run>/08_amputee_donor_prior/ and the dev report to
-<run>/06_diagnostics/c_dev_screen_20260910/.
+检查点写入 <run>/08_amputee_donor_prior/，开发报告写入
+<run>/06_diagnostics/c_dev_screen_20260910/。
 """
 
 from __future__ import annotations
@@ -173,7 +170,7 @@ def adapt_one(name: str, cfg: dict, donor_train, donor_val, base_ckpt, config,
     torch.save({"model": model.state_dict(), "candidate": name, "mode": cfg["mode"],
                 "lr": cfg["lr"], "best_selection": best,
                 "adapted_on": f"donors {DONORS} E1+E2 train reps, domain_id={DOMAIN}"}, ckpt)
-    print(f"  [adapt {name}] best_selection={best:.6f} ckpt={ckpt.name}", flush=True)
+    print(f"  [适配 {name}] 最佳选择值={best:.6f}，检查点={ckpt.name}", flush=True)
     return model, {"best_selection": best, "history": history, "checkpoint": str(ckpt)}
 
 
@@ -196,7 +193,7 @@ def main() -> None:
 
     loader = NinaProDataLoader(config["db2_path"], config["db3_path"], fs=config["orig_fs"])
 
-    print("[C-dev] loading donors...", flush=True)
+    print("[C 组开发] 正在加载供体...", flush=True)
     train_parts, val_parts = [], []
     for sid in DONORS:
         segments, _, meta = prepare_data_db3(loader, [sid], config,
@@ -206,7 +203,7 @@ def main() -> None:
         val_parts.append(segments[reps == 6])
     donor_train = np.concatenate(train_parts)
     donor_val = np.concatenate(val_parts)
-    print(f"donors: train={len(donor_train)} val={len(donor_val)} windows", flush=True)
+    print(f"供体窗口：训练={len(donor_train)}，验证={len(donor_val)}", flush=True)
 
     dev_cache = {}
     for sid in DEV_SUBJECTS:
@@ -232,12 +229,12 @@ def main() -> None:
             pred, tgt = exp3.predict_on_set(model, pool, angle, va, tcn_cfg, device)
             per[sid] = exp3.evaluate_subsets(pred, tgt)["global"]
             per[sid]["best_val_loss"] = float(best_val)
-            print(f"  [{label} S{sid:02d}] val RMSE={per[sid]['rmse']:.5f}", flush=True)
+            print(f"  [{label} S{sid:02d}] 验证 RMSE={per[sid]['rmse']:.5f}", flush=True)
         mean_rmse = float(np.mean([v["rmse"] for v in per.values()]))
         return {"per_subject": {str(k): v for k, v in per.items()}, "mean_val_rmse": mean_rmse}
 
     results = {}
-    # B reference: frozen healthy prior, domain_id=None
+    # B 组参照：冻结健康先验，domain_id=None
     set_seed(ADAPT_SEED)
     b_model = build_mcia(config, device)
     load_mcia_state_dict(b_model, base_ckpt, device)

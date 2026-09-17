@@ -1,8 +1,7 @@
-"""Unified 20-epoch DB2 screen of MCIA waveform output heads.
+"""MCIA 波形输出头的统一 20 轮 DB2 筛查。
 
-This diagnostic is isolated from Exp1/Exp2/Exp3.  It loads the selected DB2
-windows once, resets every candidate to the same seed, and replays identical
-ScenarioMix and evaluation-mask streams for every output head.
+本诊断与实验一、二、三隔离。选定的 DB2 窗口只加载一次，每个候选均重置为相同
+种子，并为各输出头重放完全一致的 ScenarioMix 和评估掩码随机流。
 """
 
 from __future__ import annotations
@@ -123,7 +122,7 @@ class LocalWaveformRefiner(nn.Module):
 
 
 class PartialConv2DRefiner(nn.Module):
-    """Mask-normalized time/channel refinement with fallback to token logits."""
+    """按掩码归一化的时间/通道细化，必要时回退到 token 的未归一化输出。"""
 
     def __init__(self):
         super().__init__()

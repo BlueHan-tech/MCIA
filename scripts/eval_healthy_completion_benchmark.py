@@ -1,27 +1,25 @@
-"""Protocol §7.5: healthy DB2 controlled-mask completion benchmark.
+"""协议 §7.5：健康 DB2 受控掩码补全基准。
 
-One-shot frozen comparison of MCIA vs SGMD-AAE vs CP-WOPT on DB2 held-out
-test subjects (S33-S40), synthetic ScenarioMix masks with known ground truth.
-Answers "which method reconstructs known signal better"; the DB3 task-matched
-script answers downstream utility and must NOT report completion metrics
-(its real mask regions have no clean truth).
+在 DB2 留出测试被试（S33-S40）上，用有已知真值的合成 ScenarioMix 掩码，
+一次性比较冻结的 MCIA、SGMD-AAE 与 CP-WOPT。
+本脚本回答“哪种方法更好地重建已知信号”；DB3 任务适配脚本回答下游效用，
+不得报告补全指标，因为真实掩码区域没有干净真值。
 
-Locked rules (protocol §7.5):
-  - benchmark subjects: DB2 test subjects from config (S33-S40), exercise 1,
-    same preprocessing as Exp1 pretraining;
-  - masks: ScenarioMix mixture, per-subject generator seeded
-    BENCHMARK_SEED + subject_id (pre-declared, recorded in the report);
-  - uniform delivery for ALL methods: clip [0,1] -> patch-boundary cross-fade
-    -> copy-back observed (MCIA via complete_with_mask, others wrapped here);
-  - SGMD-AAE pretrained on the same DB2 training pool and ScenarioMix as MCIA
-    (reuses run_task_matched_literature_baselines._train_sgmd);
-  - CP-WOPT fit per subject on the artificially masked observations
-    (transductive, labelled as such);
-  - success criterion: subject-equalized masked NRMSE mean lower than BOTH
-    baselines AND >= 4/8 per-subject wins against each.
+锁定规则（协议 §7.5）：
+  - 基准被试：配置中的 DB2 测试被试（S33-S40），动作集 1，
+    与 Exp1 预训练使用相同预处理；
+  - 掩码：ScenarioMix 混合模式，每名被试的生成器种子为
+    BENCHMARK_SEED + subject_id（预先声明并写入报告）；
+  - 所有方法统一交付：裁剪至 [0,1] -> 补丁边界交叉淡化 -> 回填观测值
+    （MCIA 调用 complete_with_mask，其余方法在此包装）；
+  - SGMD-AAE 与 MCIA 使用相同 DB2 训练池和 ScenarioMix 进行预训练
+    （复用 run_task_matched_literature_baselines._train_sgmd）；
+  - CP-WOPT 在每名被试的人工遮挡观测上拟合，并标注为转导式处理；
+  - 成功判据：被试等权的掩码区域 NRMSE 均值低于两个基线，
+    且对每个基线分别至少赢得 4/8 名被试。
 
-Writes to <run>/07_healthy_completion_benchmark/. Dev iteration on S29-S32
-only; every run on S33-S40 is recorded (mask seed, checkpoints, verdicts).
+写入 <run>/07_healthy_completion_benchmark/。开发迭代仅限 S29-S32；
+S33-S40 上的每次运行都须记录掩码种子、检查点和判定。
 """
 
 from __future__ import annotations
@@ -73,12 +71,12 @@ def _load_task_matched_module():
 
 SHARED = _load_task_matched_module()
 
-BENCHMARK_SEED = 20260910          # pre-declared per-subject mask seed base
+BENCHMARK_SEED = 20260910          # 预先声明的逐被试掩码种子基值
 
 
 def deliver_uniform(prediction: np.ndarray, observed_values: np.ndarray,
                     observed_mask: np.ndarray, patch_size: int) -> np.ndarray:
-    """Uniform §7.5 delivery: clip -> patch-boundary cross-fade -> copy-back."""
+    """§7.5 统一交付：裁剪 -> patch 边界淡化 -> 复制回观测值。"""
     p = torch.from_numpy(np.clip(prediction, 0.0, 1.0)).float()
     p = patch_boundary_crossfade(p, patch_size)
     m = torch.from_numpy(observed_mask).float()
@@ -96,7 +94,7 @@ def metrics_with_pearson(delivered: np.ndarray, clean: np.ndarray, mask: np.ndar
 @torch.no_grad()
 def predict_sgmd_raw(generator: SGMDAAEGenerator, clean: np.ndarray, mask: np.ndarray,
                      device: str, batch_size: int) -> np.ndarray:
-    """Raw SGMD generator predictions (input-masked), WITHOUT any delivery."""
+    """SGMD 生成器的原始预测（输入已加掩码），尚未应用交付规则。"""
     generator.eval()
     out = np.empty_like(clean)
     for start in range(0, len(clean), batch_size):
@@ -139,16 +137,16 @@ def main() -> None:
     try:
         data_loader = NinaProDataLoader(config["db2_path"], config["db3_path"], fs=config["orig_fs"])
 
-        # --- frozen MCIA healthy prior ---
+        # --- 冻结的 MCIA 健康先验 ---
         mcia_ckpt = (args.mcia_checkpoint if args.mcia_checkpoint is not None
                      else Path(config["exp1_dir"]) / "checkpoints" / "best_model.pth")
         if not mcia_ckpt.is_file():
-            raise FileNotFoundError(f"MCIA healthy-prior checkpoint required: {mcia_ckpt}")
+            raise FileNotFoundError(f"需要 MCIA 健康先验检查点：{mcia_ckpt}")
         mcia = build_mcia(config, device)
         load_mcia_state_dict(mcia, mcia_ckpt, device)
         mcia.eval()
 
-        # --- SGMD-AAE pretrained on the same DB2 pool / ScenarioMix as MCIA ---
+        # --- 在与 MCIA 相同的 DB2 池/ScenarioMix 上预训练 SGMD-AAE ---
         sgmd_ckpt = out_dir / "checkpoints" / "sgmd_aae_db2_200hz.pth"
         epoch_count = int(args.sgmd_epochs if args.sgmd_epochs is not None
                           else settings["sgmd_aae_epochs"])
@@ -156,7 +154,7 @@ def main() -> None:
                           else settings.get("sgmd_pretrain_max_windows", 0))
         if args.skip_sgmd_training:
             if not sgmd_ckpt.exists():
-                raise FileNotFoundError(f"--skip-sgmd-training requires {sgmd_ckpt}")
+                raise FileNotFoundError(f"--skip-sgmd-training 要求存在 {sgmd_ckpt}")
             sgmd = SGMDAAEGenerator().to(device)
             sgmd.load_state_dict(torch.load(sgmd_ckpt, map_location=device)["model"])
             sgmd.eval()
@@ -165,11 +163,11 @@ def main() -> None:
             db2_train = load_and_cache_data(data_loader, config["train_subjects"], config, db2_cache)["data"]
             if max_windows > 0:
                 db2_train = db2_train[:max_windows]
-            print(f"Pretraining SGMD-AAE on {len(db2_train)} DB2 windows...", flush=True)
+            print(f"正在 {len(db2_train)} 个 DB2 窗口上预训练 SGMD-AAE...", flush=True)
             sgmd = SHARED._train_sgmd(db2_train, config, epoch_count,
                                       int(settings["sgmd_aae_batch_size"]), seed, sgmd_ckpt)
 
-        # --- benchmark ---
+        # --- 基准评估 ---
         per_subject = {}
         for subject_id in subjects:
             set_seed(seed)
@@ -204,9 +202,9 @@ def main() -> None:
             }
             row = " ".join(f"{n}: NRMSE={per_subject[int(subject_id)]['methods'][n]['nrmse_peak_1']:.4f}"
                            for n in delivered)
-            print(f"S{subject_id:02d}: {len(clean)} windows | {row}", flush=True)
+            print(f"S{subject_id:02d}：{len(clean)} 个窗口 | {row}", flush=True)
 
-        # --- §7.5 verdicts ---
+        # --- §7.5 判定 ---
         methods = ["MCIA", "SGMD_AAE", "CP_WOPT"]
         mean_nrmse = {m: float(np.mean([per_subject[s]["methods"][m]["nrmse_peak_1"]
                                         for s in per_subject])) for m in methods}
@@ -258,13 +256,13 @@ def main() -> None:
 
         fig, axis = plt.subplots(figsize=(7, 4.5))
         axis.bar(methods, [mean_nrmse[m] for m in methods], capsize=4)
-        axis.set_title("Masked NRMSE (peak 1, lower is better)")
+        axis.set_title("缺失区 NRMSE（峰值固定为 1，越低越好）")
         axis.tick_params(axis="x", rotation=25); axis.grid(axis="y", alpha=0.25)
         fig.tight_layout(); fig.savefig(out_dir / "healthy_benchmark_summary.png", dpi=160); plt.close(fig)
 
         mark_step(run_dir, "healthy_completion_benchmark", "completed", {"output": str(out_dir)})
         print(json.dumps({"mean_nrmse": mean_nrmse, "wins": wins, "verdict": verdict}, indent=2))
-        print(f"results={out_dir / 'healthy_benchmark_report.json'}", flush=True)
+        print(f"结果={out_dir / 'healthy_benchmark_report.json'}", flush=True)
     except Exception:
         mark_step(run_dir, "healthy_completion_benchmark", "failed", {"output": str(out_dir)})
         raise

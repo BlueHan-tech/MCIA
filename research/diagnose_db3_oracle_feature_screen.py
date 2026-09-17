@@ -1,4 +1,4 @@
-"""Validation-only screen of MCIA-derived features against fixed S05 oracle gains."""
+"""仅使用验证集，对照固定 S05 Oracle 收益筛查 MCIA 派生特征。"""
 from __future__ import annotations
 
 import argparse

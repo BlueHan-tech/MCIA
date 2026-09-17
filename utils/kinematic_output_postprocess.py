@@ -37,7 +37,7 @@ def _overlap_weights(length: int, fusion: str) -> np.ndarray:
         # 保留非零边缘，使仅被一个窗口覆盖的采样点仍有定义。
         positions = np.linspace(-1.0, 1.0, length, dtype=np.float64)
         return 0.1 + 0.9 * (1.0 - np.abs(positions))
-    raise ValueError(f"Unsupported fusion mode: {fusion}")
+    raise ValueError(f"不支持的融合模式：{fusion}")
 
 
 def _smooth_segment(values: np.ndarray, filter_kind: str, savgol_window: int,
@@ -60,7 +60,7 @@ def _smooth_segment(values: np.ndarray, filter_kind: str, savgol_window: int,
         if len(values) <= padlen:
             return values
         return signal.sosfiltfilt(sos, values, axis=0)
-    raise ValueError(f"Unsupported filter kind: {filter_kind}")
+    raise ValueError(f"不支持的滤波器类型：{filter_kind}")
 
 
 def _quality_for_sequence(pred: np.ndarray, target: np.ndarray) -> dict | None:
@@ -123,9 +123,8 @@ def window_overlap_prediction_consistency(pred: np.ndarray,
                                           window_starts: np.ndarray) -> dict:
     """衡量独立预测的重叠区域之间的一致性。
 
-    This diagnostic uses predictions and their physical timestamps only. It
-    detects whether overlap-add is hiding disagreement between short windows
-    without using ground-truth angle values.
+    本诊断只使用预测值及其物理时间戳，不使用角度真值，用于检测重叠相加是否
+    掩盖了短窗口之间的预测分歧。
     """
     pred = np.asarray(pred)
     starts = np.asarray(window_starts, dtype=np.int64)
@@ -171,8 +170,8 @@ def postprocess_window_predictions(pred: np.ndarray, target: np.ndarray,
                                    lowpass_hz: float = 8.0) -> dict:
     """融合重叠预测，再平滑每条连续预测序列。
 
-    Prediction formation uses only model outputs and window positions. Targets are
-    averaged solely to return aligned data for metrics after postprocessing.
+    预测形成过程仅使用模型输出和窗口位置。目标值的平均仅用于返回对齐数据，
+    供后处理完成后计算指标。
     """
     pred = np.asarray(pred)
     target = np.asarray(target)

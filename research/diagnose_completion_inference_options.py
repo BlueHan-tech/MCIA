@@ -1,15 +1,14 @@
-"""Time-bounded paired inference-option screen on the frozen Exp1 checkpoint.
+"""基于冻结实验一检查点的限时配对推理选项筛查。
 
-Conditions (all paired: same checkpoint, same fixed S1/S2/S3 masks, DB2
-validation subject 29 only; no test subjects, no training, no main-flow writes):
-  baseline           complete_with_mask defaults (clip + copy-back)
-  boundary_smooth    + patch-boundary three-point cross-fade
-  refine2            + one extra self-refinement forward pass
-  unc_g0.10/0.15/0.20 MC-Dropout uncertainty-gated completion (8 samples)
+条件（全部配对：相同检查点、相同固定 S1/S2/S3 掩码、仅用 DB2 验证被试 29；
+不使用测试被试、不训练、不写入主流程）：
+  baseline           complete_with_mask 默认设置（裁剪 + 观测值回填）
+  boundary_smooth    额外应用 patch 边界三点淡化
+  refine2            额外执行一次自细化前向传播
+  unc_g0.10/0.15/0.20 MC-Dropout 不确定性门控补全（8 次采样）
 
-Outputs masked RMSE/MAE/corr per scenario plus the 0.2/0.4/0.4 weighted
-summary used by earlier activation screens. Writes only to
-<run>/06_diagnostics/.
+输出逐场景缺失区 RMSE/MAE/相关系数，以及此前激活函数筛查使用的 0.2/0.4/0.4
+加权摘要。仅写入 <run>/06_diagnostics/。
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Bounded synthetic checks; no datasets, checkpoints or experiment runs."""
+"""有界合成检查；不使用数据集、检查点或实验运行。"""
 import importlib.util
 import sys
 from pathlib import Path
@@ -36,7 +36,7 @@ def test_completion_paths():
     with torch.no_grad():
         model.pred_head[0].weight.zero_()
         model.pred_head[0].bias.fill_(2.0)
-    # Force overshoot through the real Softplus head, retaining its state schema.
+    # 通过真实 Softplus 输出头强制产生越界值，同时保留其状态结构。
     assert (model(x * mask, raw_time_mask=mask) > 1).all()
     clone = MCIA(window_size=32, n_channels=12, patch_size=8,
                  embed_dim=16, n_layers=1, n_heads=4, ffn_dim=32, dropout=0)

@@ -1,8 +1,7 @@
-"""Build a validation-only raw-EMG error-window table for DB3 development.
+"""为 DB3 开发构建仅含验证集的原始 EMG 误差窗口表。
 
-This independent diagnostic trains the current Key10 KinematicTCN on raw EMG
-and records validation-window errors plus EMG-only summary features.  It never
-predicts, scores, or ranks the held-out test repetitions.
+本独立诊断在原始 EMG 上训练当前 Key10 KinematicTCN，记录验证窗口误差及仅由
+EMG 计算的汇总特征。不对留出的测试 repetition 进行预测、评分或排序。
 """
 from __future__ import annotations
 
@@ -71,7 +70,7 @@ def _parse_subjects(value: str) -> list[int]:
 
 
 def _maximum_run_duration(mask: np.ndarray, target_fs: float) -> np.ndarray:
-    # Return the longest true run across channels for each window, in ms.
+    # 返回每个窗口跨通道的最长 True 连续段，单位为毫秒。
     n_windows, _, n_channels = mask.shape
     longest = np.zeros(n_windows, dtype=np.int32)
     for window_index in range(n_windows):

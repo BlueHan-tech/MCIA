@@ -52,7 +52,7 @@ def main() -> None:
     }
 
     print("=" * 80)
-    print("[DB3 anomaly masks] scenario-aligned rule detector")
+    print("[DB3 异常掩码] 与场景对齐的规则检测器")
     print("=" * 80)
 
     for subject_id in subjects:
@@ -111,10 +111,10 @@ def main() -> None:
             manifest["subjects"].append(
                 {"subject_id": int(subject_id), "status": "skipped", "reason": str(exc)}
             )
-            print(f"  skipped: {exc}")
+            print(f"  已跳过：{exc}")
 
     save_json(out_dir / "manifest.json", manifest)
-    print(f"\nSaved DB3 anomaly masks to: {out_dir}")
+    print(f"\nDB3 异常掩码已保存至：{out_dir}")
 
 
 if __name__ == "__main__":

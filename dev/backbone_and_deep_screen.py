@@ -3,31 +3,31 @@
 开发竞赛，非主方法接入：不改 scripts/、models/、config.yaml、主链路、协议；不读取/运行/生成
 S33-S40、DB3、下游任务、SGMD-AAE、CP-WOPT 的任何结果；S29-S32 仅一次最终前向评估。
 已有结果不重跑：B1 = Ridge+L32 线性因果残差（E-003，被试等权 0.149606）；D1 = B1+小因果 TCN
-（E-004，五 seed 均值 0.148786，SD 0.000394）。唯一例外：D2/D3 需要的 B1 特征按 E-003 冻结
+（E-004，五个随机种子的均值 0.148786，SD 0.000394）。唯一例外：D2/D3 需要的 B1 特征按 E-003 冻结
 构造（同 8,000 固定训练窗、训练掩码种子 20260910、L32、lambda=1e-3）生成一次，并以逐被试
 断言核验评估侧 B1 与 E-003 一致（|delta|<1e-5 否则训练前停止）。
 
 四臂（封闭集合，不再扩展、不调参）：
   S1 因果低维线性 SSM/Kalman：在训练窗干净数据上以 PCA+AR(1) 闭式辨识
      z_t = A z_(t-1)+eps、x_t = mu + C z_t + eta（C 取协方差特征向量，属同一模型族的确定性
-     辨识方案）；Q、R 固定对角；推理仅当前可见通道 measurement update 的因果滤波（禁 smoother/
-     双向/未来帧）。rank r in {4,6,8}，由训练池内部连续 (subject, repetition) 块 80/20 留出集
+     辨识方案）；Q、R 固定对角；推理仅对当前可见通道做观测更新的因果滤波（禁止平滑/
+     双向/未来帧）。秩 r 属于 {4,6,8}，由训练池内部连续 (subject, repetition) 块 80/20 留出集
      （固定规则：组按 (subject,rep) 升序，每第 5 组为留出）选择，最终在全 8,000 窗重拟合。
-  S2 sEMG 肌肉协同 NMF：训练窗干净数据学非负 W（乘法更新，固定 300 iter，每 iter 列归一；
-     每 rank 固定 3 个初始化 seed 0/1/2，按拟合目标选 init）；每时刻仅当前可见通道解
-     L2 正则 NNLS（小规模活动集精确解）估计 h，用 Wh 恢复缺失。rank {4,6,8} x L2
+  S2 sEMG 肌肉协同 NMF：训练窗干净数据学非负 W（乘法更新，固定 300 次迭代，每次列归一；
+     每个秩固定 3 个初始化种子 0/1/2，按拟合目标选择初始化）；每时刻仅当前可见通道解
+     L2 正则 NNLS（小规模活动集精确解）估计 h，用 Wh 恢复缺失。秩 {4,6,8} × L2
      {1e-4,1e-3,1e-2} 由同内部留出集选择，最终按固定规则在全 8,000 窗重拟合。
   D2 B1 + 因果 Transformer 残差：输入同 E-004 TCN [B1 base, observed, mask] 36 通道；
-     2 层 d_model=16 / 4 heads / FFN=32 / dropout=0.1，因果且局部 64 点注意力 + 固定正弦位置
+     2 层 d_model=16 / 4 个注意力头 / FFN=32 / dropout=0.1，因果且局部 64 点注意力 + 固定正弦位置
      编码，零初始化 12 通道残差头。
   D3 B1 + GRU-D 型因果残差：输入为 [B1 base, observed, mask, 每通道距上次观测步数 delta]
      48 通道；单层 GRU hidden=16，零初始化残差头。GRU-D 风格的 delta 特征，非原论文逐字复现。
-  D2/D3：masked MSE、AdamW lr=1e-3、batch=64、30 epochs、seeds 20260911-20260915，
-     无 early stopping / checkpoint 选择 / 超参搜索；观测位置硬回填，只替换缺失位置。
+  D2/D3：掩码区域 MSE、AdamW lr=1e-3、batch=64、30 轮、随机种子 20260911-20260915，
+     无早停 / 检查点选择 / 超参搜索；观测位置硬回填，只替换缺失位置。
 
 统一口径：同 B1 的 8,000 训练窗与训练掩码、S29-S32 冻结评估掩码（seed=20260910+sid）、
-200 Hz 256x12、clip -> patch crossfade -> observed 回填、masked NRMSE（峰值 1）+ PSNR/RME/
-masked Pearson（import eval_healthy_completion_benchmark.metrics_with_pearson）+ K_obs 分层。
+200 Hz 256x12、裁剪 -> 补丁边界交叉淡化 -> 观测值回填、掩码区域 NRMSE（峰值 1）+ PSNR/RME/
+掩码区域 Pearson（导入 eval_healthy_completion_benchmark.metrics_with_pearson）+ K_obs 分层。
 内部留出掩码用同族 ScenarioMix、固定种子 20260920（与训练 20260910、评估 20260939-42 不冲突）。
 
 复用（import 不复制）：Ridge predict_window（dev/ridge_attribution.py）；因果特征/交付/常量
@@ -37,9 +37,10 @@ masked Pearson（import eval_healthy_completion_benchmark.metrics_with_pearson�
 K_obs 分层（dev/attribution_ladder.py）；含 Pearson 指标
 （scripts/eval_healthy_completion_benchmark.py）；配置（utils/paper_pipeline.py）。
 
-判定（预声明）：S1/S2 确定性方法：被试等权均值 < 0.149606 且 >=3/4 被试优于 B1 才是 provisional
-winner；D2/D3：五 seed 被试等权均值 < 0.148786 且 >=3/4 被试五 seed 均值优于 B1 才是 provisional
-winner。出现 winner 只报告、不叠加；无 winner 则 D1 暂保留为开发集最佳候选，不宣称全局最优。
+判定（预声明）：S1/S2 确定性方法：被试等权均值 < 0.149606 且 >=3/4 被试优于 B1 才是暂定
+胜出候选；D2/D3：五个随机种子的被试等权均值 < 0.148786 且 >=3/4 被试的五种子均值优于 B1
+才是暂定胜出候选。出现胜出候选只报告、不叠加；无胜出候选则 D1 暂保留为开发集最佳候选，
+不宣称全局最优。
 """
 
 from __future__ import annotations
@@ -99,7 +100,7 @@ hbench = load("hbench", PROJECT_ROOT / "scripts" / "eval_healthy_completion_benc
 SEEDS = rts.SEEDS
 
 
-# ---------------- S1: causal linear-Gaussian SSM (PCA+AR(1) identification + Kalman filter) ----------------
+# ---------------- S1：因果线性高斯 SSM（PCA+AR(1) 辨识与 Kalman 滤波） ----------------
 
 def fit_ssm(windows: np.ndarray, rank: int) -> dict:
     xs = windows.reshape(-1, windows.shape[2])
@@ -158,7 +159,7 @@ def ssm_complete_stack(model: dict, clean: np.ndarray, mask: np.ndarray) -> np.n
     return preds
 
 
-# ---------------- S2: NMF synergy + per-step L2-regularized NNLS ----------------
+# ---------------- S2：NMF 肌肉协同与逐步 L2 正则化 NNLS ----------------
 
 def fit_nmf(x_mat: np.ndarray, rank: int, seed: int, iters: int = S2_NMF_ITERS):
     rng = np.random.default_rng(seed)
@@ -222,7 +223,7 @@ def nmf_complete_stack(w_mat: np.ndarray, lam: float, clean: np.ndarray,
     return preds
 
 
-# ---------------- D2 / D3 residual models ----------------
+# ---------------- D2 / D3 残差模型 ----------------
 
 def sinusoidal_pe(time_steps: int, d_model: int) -> np.ndarray:
     pos = np.arange(time_steps)[:, None]

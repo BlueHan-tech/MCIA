@@ -31,7 +31,7 @@ def main():
     total = sum(c for _, c in rows)
     w = max(len(n) for n, _ in rows)
     print(
-        "MCIA 参数量明ϸ "
+        "MCIA 参数量明细 "
         f"(embed_dim={config['embed_dim']}, n_layers={config['n_layers']}, "
         f"n_heads={config['n_heads']}, ffn_dim={config['ffn_dim']})"
     )

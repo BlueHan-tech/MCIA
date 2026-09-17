@@ -1,7 +1,7 @@
-"""Validation-only loss grid for the PartialConv MCIA output head.
+"""PartialConv MCIA 输出头的验证集损失网格筛查。
 
-The four candidates share one DB2 data load and identical ScenarioMix streams.
-S04 is evaluated only once, after the winner has been fixed on S03 validation.
+四个候选共用一次 DB2 数据加载及完全相同的 ScenarioMix 随机流。
+在 S03 验证集上锁定胜出候选后，S04 只评估一次。
 """
 
 from __future__ import annotations

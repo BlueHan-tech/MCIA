@@ -77,7 +77,7 @@ def load_mcia_state_dict(
     device: str,
     required_state_prefixes: Optional[Iterable[str]] = None,
 ) -> None:
-    """Load MCIA weights, optionally requiring checkpoint modules used at inference."""
+    """加载 MCIA 权重，并可要求检查点必须包含推理所需模块。"""
     ckpt = torch.load(checkpoint_path, map_location=device)
     state = ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt
     required_prefixes = tuple(required_state_prefixes or ())
@@ -87,7 +87,7 @@ def load_mcia_state_dict(
     ]
     if missing_required:
         raise ValueError(
-            f"Checkpoint {checkpoint_path} is missing required inference weights: "
+            f"检查点 {checkpoint_path} 缺少推理所需权重："
             f"{missing_required}"
         )
 
@@ -99,9 +99,9 @@ def load_mcia_state_dict(
             new_w = torch.zeros_like(model_w)
             new_w[:n_copy] = ckpt_w[:n_copy]
             state["domain_embed.weight"] = new_w
-            print(f"  [load_mcia] domain_embed expanded "
+            print(f"  [加载 MCIA] 已扩展 domain_embed："
                   f"{tuple(ckpt_w.shape)} → {tuple(model_w.shape)}, "
-                  f"rows 0..{n_copy - 1} preserved")
+                  f"保留第 0..{n_copy - 1} 行")
 
     model_state = model.state_dict()
 
@@ -112,28 +112,28 @@ def load_mcia_state_dict(
     ]
     if dropped_required:
         raise ValueError(
-            f"Checkpoint {checkpoint_path} contains required weights that do not match "
-            f"the instantiated inference model: {dropped_required}"
+            f"检查点 {checkpoint_path} 包含与当前推理模型不匹配的必需权重："
+            f"{dropped_required}"
         )
     for k in unexpected:
         del state[k]
     if unexpected:
-        print(f"  [load_mcia] skipped unexpected: {' '.join(unexpected)}")
+        print(f"  [加载 MCIA] 已跳过意外权重：{' '.join(unexpected)}")
 
     reinit = []
     for key in list(state.keys()):
         if state[key].shape != model_state[key].shape:
             state[key] = model_state[key].clone()
-            reinit.append(f"{key}(ckpt->model shape fixed)")
+            reinit.append(f"{key}（检查点到模型的形状已修正）")
     if reinit:
-        print(f"  [load_mcia] reinit shape-mismatch: {' '.join(reinit)}")
+        print(f"  [加载 MCIA] 已重新初始化形状不匹配项：{' '.join(reinit)}")
 
     missing = [k for k in model_state.keys() if k not in state]
     load_result = model.load_state_dict(state, strict=False)
     if missing:
-        print(f"  [load_mcia] initialized missing: {' '.join(missing)}")
+        print(f"  [加载 MCIA] 已初始化缺失项：{' '.join(missing)}")
     if load_result.unexpected_keys:
-        print(f"  [load_mcia] unexpected after load: {' '.join(load_result.unexpected_keys)}")
+        print(f"  [加载 MCIA] 加载后仍有意外项：{' '.join(load_result.unexpected_keys)}")
 
 
 def build_mask_generator(config: Dict) -> ScenarioMixMaskGenerator:
@@ -155,12 +155,12 @@ def make_controlled_mask(
     device: str | torch.device,
     seed: Optional[int] = None,
 ) -> torch.Tensor:
-    """Create a deterministic sample-level observation mask in (B, T, C) format."""
+    """创建形状为 (B,T,C) 的确定性样本级观测掩码。"""
     if len(shape) != 3:
-        raise ValueError(f"Expected shape=(B,T,C), got {shape!r}")
+        raise ValueError(f"形状应为 (B,T,C)，实际为 {shape!r}")
     B, T, C = (int(v) for v in shape)
     if B <= 0 or T <= 0 or C <= 0:
-        raise ValueError(f"Mask shape must be positive, got {shape!r}")
+        raise ValueError(f"掩码各维长度必须为正数，实际为 {shape!r}")
 
     ratio = float(np.clip(ratio, 0.0, 1.0))
     patch_size = max(1, int(patch_size))

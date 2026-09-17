@@ -1,8 +1,7 @@
-"""Isolated DB3 gesture-recognition diagnostic for raw versus MCIA-enhanced EMG.
+"""原始 EMG 与 MCIA 增强 EMG 的独立 DB3 手势识别诊断。
 
-This script does not modify Exp1, Exp2, or Exp3. It evaluates a fixed,
-subject-specific GestureTCN on DB3 E1 actions using a repetition-held-out split:
-train repetitions 1/3/4, validation repetition 6, and test repetitions 2/5.
+本脚本不修改实验一、二、三。它在 DB3 E1 动作上评估固定的被试专属 GestureTCN，
+采用 repetition 留出划分：训练 1/3/4，验证 6，测试 2/5。
 """
 from __future__ import annotations
 
@@ -67,7 +66,7 @@ class GestureDataset(Dataset):
 
 
 class GestureTCN(nn.Module):
-    """Small subject-specific temporal classifier with global time pooling."""
+    """采用全局时间池化的小型被试专属时序分类器。"""
 
     def __init__(self, n_emg_channels: int, n_classes: int, hidden_dim: int, n_layers: int,
                  kernel_size: int, dropout: float):
@@ -86,7 +85,7 @@ class GestureTCN(nn.Module):
 
 def load_db3_windows(loader: NinaProDataLoader, subject_id: int, exercise: int, config: dict,
                      min_label_ratio: float, min_repetition_ratio: float) -> GestureWindows:
-    """Reuse Exp3 EMG preprocessing while retaining exact action-window metadata."""
+    """复用实验三 EMG 预处理，同时保留精确的动作窗口元数据。"""
     data = loader.load_db3_subject(subject_id, [exercise])
     emg = data["emg"] * 1000.0
     emg = loader.bandpass_filter(emg)

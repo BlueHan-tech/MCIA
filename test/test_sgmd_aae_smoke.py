@@ -1,4 +1,4 @@
-"""Short architecture and loss smoke for the SGMD-AAE literature baseline."""
+"""SGMD-AAE 文献基线的短时架构与损失冒烟测试。"""
 from __future__ import annotations
 import sys
 from pathlib import Path
