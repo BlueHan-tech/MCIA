@@ -1,6 +1,6 @@
 # Plotting Rules
 
-训练、metrics 和图像是完整实验产出；不能默认跳过绘图。环境初始化和编码规则见 [WINDOWS.md](WINDOWS.md)。
+正式实验的训练产物、metrics 和图像按报告需求完整交付，不能静默跳过用户要求的图像。开发诊断只需生成回答预先说明问题所需的产物，不要求每个候选都制作完整论文图集。环境初始化和编码规则见 [WINDOWS.md](WINDOWS.md)。
 
 ## Matplotlib 规则
 

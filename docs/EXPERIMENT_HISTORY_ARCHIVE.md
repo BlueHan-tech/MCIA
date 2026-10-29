@@ -1,7 +1,8 @@
 # 历史实验结论与方案档案
 
-冻结日期：2026-09-11  
-状态：**历史证据档案；只读，不是当前或后续主实验协议。**
+历史证据截止日期：2026-09-17
+本次归档整理：2026-10-29
+状态：**历史证据档案；不作为当前或后续主实验协议。**
 
 本文件在重构实时、受控掉线下游方案之前固定已经运行、已经讨论和已经淘汰的路线，避免之后因代码清理而重复试验或误用旧结果。唯一可作为数值证据的来源仍是所列 run 产物；本文件不把开发结果提升为正式结论。
 
@@ -42,7 +43,7 @@
 | Ridge + 严格因果线性残差，L=32 | 0.149606 | 已验证；4/4 被试优于 Ridge，L=0 中性，增益来自时间历史。 |
 | 上述 L32 + 小型严格因果 TCN 残差 | 0.14879 ± 0.00039（5 seed） | 开发筛查成功；相对 L32 的均值增益仅约 0.0008，尚未进入下游或正式基准。 |
 
-来源：`docs/COLLABORATION.md` E-001--E-004；run `run_20260908_191852_1/06_diagnostics/` 的 `attribution_ladder_20260910_v2`、`ridge_residual_diagnostic_20260910`、`ridge_residual_tcn_screen_20260910`。
+来源：本文件“Archived detailed development evidence”中的 E-001--E-004；run `run_20260908_191852_1/06_diagnostics/` 的 `attribution_ladder_20260910_v2`、`ridge_residual_diagnostic_20260910`、`ridge_residual_tcn_screen_20260910`。
 
 ### 2.2 C 供体适配筛选
 
@@ -104,3 +105,51 @@
 ## 5. 后续使用规则
 
 不得借用旧开发数字宣称新方案有效。
+
+---
+
+# Archived detailed development evidence
+
+## 开发证据记录
+
+### E-001｜岭回归 v1｜2026-09-10｜非最终
+
+- 设置：DB2 开发被试 S29–S32，冻结基准掩码与统一交付；同一时刻的观测通道到缺失通道归纳式岭回归。报告 masked NRMSE。
+- 结果：全局全秩为 S29 0.1741、S30 0.1678、S31 0.1655、S32 0.1722，被试等权均值 **0.170**；全局 rank-8 均值 0.226；逐窗全秩均值 0.207；逐窗 rank-8 均值 0.264。
+- 当前解释：NRMSE 越低越好；E-002 已在同一 S29–S32、同一掩码、同一交付口径复现 MCIA 被试等权均值 0.1773，因而全局全秩 ridge 的 0.170 在 4/4 被试优于 MCIA。rank-8 截断和逐窗中心化均劣化，说明本口径下的同时刻通道映射需要高秩，且绝对包络水平携带有用信息。
+- 未决问题：CP-WOPT 的约 0.150 仅为 S29 旧预览，不是本次同口径 4 被试结果；不得把 Ridge 与 CP 的差距定量化，或归因于转导信息。
+
+### E-002｜归因阶梯 v2｜2026-09-10｜已验证｜开发证据
+
+- 入口：`dev/attribution_ladder.py`，仅使用 DB2 训练缓存拟合窗口 PCA；S29–S32 只做前向补全与分层评估。输出为当前 `MCIA_RUN_DIR/06_diagnostics/attribution_ladder_20260910_v2/attribution_ladder.json`，不是主链路。
+- 已定位与修复：原实现对约 28,218×3,072 的全量中心化矩阵重复 full SVD，训练缓存约 1 GB，造成内存和运行时间失控，且中断后旧输出目录阻断重跑。现改为在全部训练窗上的批处理 `scipy.sparse.linalg.svds` 截断分解（rank 8/32、固定随机种子），不物化中心化大矩阵；新输出目录避免覆盖中断产物。
+- 真实运行：用户授权的 GLM 执行 `MCIA_RUN_DIR=outputs/run/run_20260908_191852_1`，207 s 完成、无 OOM；原始产物为 `06_diagnostics/attribution_ladder_20260910_v2/attribution_ladder.json`。PCA 在 28,218 个 DB2 训练窗上拟合，rank 8/32 方差份额为 57.96%/68.12%。
+- 结果：low-rank rank-8/rank-32/MCIA 的 S29–S32 被试等权 masked NRMSE 分别为 **0.1904 / 0.1940 / 0.1773**；既有全秩 ridge 为 **0.1700**，逐被试 4/4 优于 MCIA 与两个低秩变体。`K_obs=6–11` 占约 99% 缺失条目，MCIA 为 0.1773、低秩为 0.1906/0.1943；`K_obs=1–5` 约占 1%，rank-32 为 0.1624、优于 MCIA 0.1740，但 ridge 没有该分层输出。`K_obs=0` 没有样本。
+- 结论与边界：可淘汰“从训练池学习单窗低秩基”作为全局补全主路线；Ridge 是当前最强归纳式基准，MCIA 不是。结果支持下一候选以 Ridge 为主干、仅在其剩余误差上检验受控的因果时序残差。CP-WOPT 未在本次重跑，不能宣称其优势来源或与 ridge 的精确差距。
+
+### E-003｜Ridge 残差可学习性诊断｜2026-09-10｜已验证｜开发证据
+
+- 入口：`dev/ridge_residual_diagnostic.py`（非主链路）。Ridge 臂 import `dev/ridge_attribution.py` 的 `predict_window`；掩码生成、masked 指标、patch 边界淡化与配置分别 import `scripts/run_task_matched_literature_baselines.py` 与 `utils/paper_pipeline.py`；K_obs 分层 import `dev/attribution_ladder.py`；未复制主链路实现。
+- 设计：严格因果线性残差头，输入当前及过去 L 帧的 ridge 预测、observed=clean*mask 与 mask（窗外历史零填充，fit/eval 同规则），仅在 DB2 训练池人工掩码位置以逐通道精确正态方程拟合 residual=clean−ridge（λ=1e-3 相对正则）。拟合用固定种子 20260910 的 8,000 窗随机子集（池共 28,218 窗）；S29–S32 仅前向评估（seed=20260910+sid，与 v1/v2 同冻结掩码、同 clip→crossfade→回填交付）。L∈{0,8,16,32} 全部报告，不按结果挑选。运行前数学自检：逐通道 Gram 解与显式岭 lstsq 系数差 <2e-13，因果性扰动测试通过。
+- 运行：1,730 s，无 OOM（外部轮询峰值工作集约 4.1 GB；脚本内 ctypes 读数失败返回 nan）。产物为当前 `MCIA_RUN_DIR/06_diagnostics/ridge_residual_diagnostic_20260910/ridge_residual_diagnostic.json`。
+- 一致性：Ridge 臂逐被试 0.1741/0.1678/0.1655/0.1722 精确复现 E-001；masked_count 与 E-002 完全一致（同掩码/交付/指标）。
+- 独立复核：主代理静态审查训练/评估分离与特征构造，并以未来帧整体扰动验证 `build_causal_features` 在扰动点之前逐元素不变；`py311` 编译与原始 JSON 的 L32 逐被试差值（−0.0189/−0.0233/−0.0182/−0.0207）均通过。该复核不替代正式重跑。
+- 结果（S29–S32 被试等权 masked NRMSE，越低越好）：Ridge **0.1699**；+因果线性残差 L=0/8/16/32 = **0.1701 / 0.1635 / 0.1567 / 0.1496**。L>0 在 4/4 被试单调改善且未在 L=32 饱和；`K_obs=6–11`（约 99% 缺失条目）L32 为 0.1497（Δ−0.0202），`K_obs=1–5`（约 1%）L32 为 0.1417（Δ−0.0316）；L=0 中性（±0.0004），说明增益来自时序历史而非静态特征扩充。
+- 判定（按预声明三分支）：L>0 在多数被试、尤其 K_obs=6–11 稳定优于 Ridge → **可以讨论小型因果残差 TCN**。非正式参考：L32 被试均值 0.1496 与 CP-WOPT 的 S29 旧预览 0.150 数值相近，但口径不同（CP 未重跑、为单被试转导值；S29 上 L32=0.1552 仍高于 0.150），不得据此宣称超越 CP。本诊断不构成 §7.6 重建门通过：配置/代码 hash 未冻结，未触碰 S33–S40，任何臂均未提升为正式候选。
+
+### E-004｜线性动态基底 + 因果 TCN 残差筛查｜2026-09-10｜成功（开发证据）
+
+- 入口：`dev/ridge_residual_tcn_screen.py`（非主链路）。Ridge `predict_window`、因果特征构造 `build_causal_features`、统一交付与 E-003 冻结常量 import 自 `dev/ridge_attribution.py` / `dev/ridge_residual_diagnostic.py`；掩码、masked 指标、配置 import 主模块；未复制实现。base 严格复用 E-003 冻结构造（同 8,000 窗子集、训练掩码种子 20260910、λ=1e-3、L32 逐通道正态方程头），并内置 E-003 漂移绊线：本次 ridge 与 base32 逐被试 overall 与 E-003 记录逐位一致（断言通过）。
+- 冻结候选：36 通道输入（base/observed=clean*mask/mask）、5 层严格因果膨胀卷积（hidden=16、kernel=2、dilation=[1,2,4,8,16]、感受野 32 点）、零初始化 12 通道残差头；仅人工掩码位置 masked MSE；AdamW lr=1e-3、batch=64、固定 30 epochs、seeds 20260911–20260915 独立训练，无超参搜索/早停/checkpoint 选择/逐被试适配；最终输出 = mask*observed + (1-mask)*completed。
+- 验证：C 编译通过；A 零初始化模型训练前交付输出与 base 逐元素一致（5/5 seed）；B 扰动 t 之后全部输入，t 之前 TCN 输出逐元素不变（5/5 seed，训练后模型）。
+- 结果（S29–S32 被试等权 masked NRMSE，同 E-001/002/003 掩码与交付）：base 0.149606；5 seed = **0.1490 / 0.1493 / 0.1485 / 0.1489 / 0.1483**（均值 0.14879，样本 SD 0.00039）。逐被试相对 base 差值 −0.0027…+0.0012；S31 在 2/5 seed 微劣（+0.0005/+0.0012），其余被试全 seed 改善；K_obs=6–11 稳定改善，K_obs=1–5 混合（seed 均值略优）。
+- 判定（预声明规则）：**成功**——5/5 seed 被试等权 overall < 0.1496 且每 seed ≥3/4 被试优于 L32 base（4/3/4/3/4）。效应量如实记录：对 base 均值改善约 0.0008（相对约 0.5%），小但 5 seed 方向一致；相对 Ridge 0.1699 累计改善 0.021。失败分支未触发，不扩网/加图/改损失/延长训练。
+- 边界与完整性：开发筛查，不进入 S33–S40、下游或主链路，不构成 §7.6 重建门通过（未冻结配置/code hash/报告清单）。首次运行在全部计算完成、写盘前因脚本局部变量遮蔽 bug（循环变量 `out` 覆盖输出目录 Path）崩溃、无产物；修复仅重命名局部变量，未改任何实验参数/种子/数据；重跑 5 seed 全部数值与崩溃运行控制台打印完全一致（CPU 确定性交叉验证）。产物：`06_diagnostics/ridge_residual_tcn_screen_20260910/`（JSON + base 与 5 seed 预测 .pt）；运行 3,860 s，峰值 4,112 MB，无 OOM。
+
+### E-005｜封闭式主干 + 深度模型开发竞赛｜2026-09-11/17｜无 winner（开发证据）
+
+- 入口：`dev/backbone_and_deep_screen.py`（唯一新入口，非主链路；sha256 7597624e…db47 记录于 JSON）。Ridge/掩码/指标/交付/配置/Pearson 均 import 既有模块（`ridge_attribution`、`ridge_residual_diagnostic`、`ridge_residual_tcn_screen/select`、`run_task_matched_literature_baselines`、`attribution_ladder`、`eval_healthy_completion_benchmark.metrics_with_pearson`、`utils.paper_pipeline`）；B1 特征按 E-003 冻结构造生成一次，评估侧 B1 逐被试 drift=0.00e+00 精确复现（断言通过后才训练）。未触碰 S33–S40、DB3、下游任务、SGMD-AAE、CP-WOPT。
+- 四臂（封闭集合，未因结果扩展）：S1 因果低维线性 SSM（PCA+AR(1) 闭式辨识、对角 Q/R、纯因果 Kalman 滤波，rank 由内部连续 (subject,repetition) 块 80/20 留出集选：175 组中每第 5 组留出，6465/1535 窗）；S2 NMF 协同（3 固定初始化、rank×L2 九格内部留出选择后全子集重拟合）；D2 B1+因果局部 64 点注意力 Transformer 残差（2 层 d16/4 头/FFN32/dropout0.1/零初始化头，每层各自 64 点历史，两层堆叠有效感受野约 127 点，全部严格因果）；D3 B1+GRU-D 型残差（加入每通道距上次观测步数 delta）。S29–S32 仅一次最终前向；深度臂同 E-004 训练规则（AdamW 1e-3/batch64/30 epochs/5 seeds 20260911–15，无早停与选择）。
+- 结果（被试等权 masked NRMSE；B1=0.149606，D1=0.148786±0.000394）：S1(rank6) **0.174584**、0/4 胜 B1；S2(rank4, λ=0.01) **0.221327**、0/4（且 NMF rank 越大越差：4→8 单调恶化）；D2 五 seed 0.1486/0.1490/0.1486/0.1494/0.1486，均值 **0.148829**±0.000364、3/4 胜 B1、延迟 3.1 ms——均值比 D1 高 0.000043，未过"均值 < 0.148786"；D3 五 seed 均值 **0.150349**±0.000533、0/4 胜 B1（劣于 B1 本身）。验证：py311 编译、全部 valA（零初始化交付=B1）/valB（未来扰动不变）通过；单窗延迟 S1 49.4 ms、S2 5.5 ms、D2 3.1 ms、D3 9.5 ms。
+- 判定（预声明规则）：**无 provisional winner**。S1/S2 未过 B1 双条件；D2 差 0.000043 未过 D1 均值门且属"结果接近"区，按纪律不调参不加候选；D3 双条件皆负。结论：**D1（B1 + 小因果 TCN）暂保留为开发集最佳候选，不宣称全局最优**。归因含义：B1 之上的可学习残差已近耗尽（~0.0008，TCN 与 Transformer 两种架构在该容量下打平），delta 型缺失时距特征无增益，低维全局结构（动态或非负）远弱于高秩同时刻映射。
+- 完整性与异常：冒烟阶段抓出并修复 D2 注意力掩码行列转置 bug（修复前会放行未来帧，未进入正式运行）；正式运行中机器于 09-11 晚被挂起（合盖/休眠，非空闲超时）约 5.8 天，09-17 恢复后进程无损续跑，全部断言/验证事后通过，结果有效性不受暂停影响（D3 末 seed 墙钟 494,170 s 如实记录）。运行总墙钟 503,671.6 s（有效计算约 2 小时），峰值 4,113 MB，无 OOM。产物：`06_diagnostics/backbone_deep_screen_20260911/`（JSON 含内部选择全表/最终配置/code hash/延迟/异常 + 12 个预测 .pt）。
