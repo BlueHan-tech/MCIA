@@ -9,6 +9,13 @@ Exp4：DB3 48 类手势识别（A/B）
 可选的文献基线阶段仅在默认流水线成功完成后运行。它是任务匹配的 200 Hz 比较，
 与独立的论文格式复现入口不同。
 """
+"""
+总控：
+输入：根目录 config.yaml、可选的 MCIA_RUN_DIR、文献基线开关。
+职责：创建或复用 run，使用启动时的 sys.executable 顺序启动子进程，设置 Windows DLL 路径、UTF-8 和绘图后端。
+输出：00_config/config_snapshot.yaml、environment.json、run_manifest.json，以及 05_logs/ 阶段日志。
+控制关系：子进程返回非零时停止后续阶段；manifest 记录阶段状态。退出成功本身不代表协议判据通过。
+"""
 
 from __future__ import annotations
 

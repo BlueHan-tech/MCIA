@@ -4,19 +4,15 @@
 
 ## Run 目录规则
 
-1. 单步脚本不允许偷偷创建新的 run 目录。
-2. 单步脚本没有 `MCIA_RUN_DIR` 时必须明确报错。
-3. 只有 `scripts/run_all_experiments.py` 可以正常创建新 run。
-4. 续跑旧实验必须显式设置 `MCIA_RUN_DIR`。
-5. 所有中间产物必须写回当前 run，不允许写到新的空 run。
+1. 续跑旧实验必须显式设置 `MCIA_RUN_DIR`。
+2. 所有中间产物必须写回当前 run。
 
 ## Resume / outputs
 
-1. Exp3 必须支持从已有 prediction 重建 metrics；已完成 subject 不应重复训练。
+1. 角度评估支持从已有 prediction 重建 metrics；已完成 subject 不应重复训练。
 2. 每个 subject 完成后尽快落盘 prediction 和 metrics 状态。
-3. Exp4 缺少 Exp3 输入时，明确打印缺失路径和应先运行的脚本。阶段称谓沿用旧规则，实际入口与依赖须按脚本核对。
-4. 图像是最终产出的一部分，按 [PLOTTING.md](PLOTTING.md) 生成和验证。
-5. 旧 run 可作为历史记录保留；legacy 读取或重绘必须明确标注，不影响新主流程默认行为。
+3. 图像按 [PLOTTING.md](PLOTTING.md) 生成和验证。
+4. 旧 run 可作为历史记录保留；legacy 读取或重绘必须明确标注，不影响新主流程默认行为。
 
 ## 变更记录规则
 
@@ -31,12 +27,3 @@
    - 涉及的主要模块或脚本
 7. 记录应描述事实，不写长篇过程，不记录无效尝试，除非该尝试形成了明确诊断结论。
 8. 如果用户明确要求本次不要写 changelog，则以用户要求为准。
-9. changelog 示例：
-
-   ```markdown
-   ## 2026-07-20
-
-   修复 Windows conda DLL 路径污染导致的 Matplotlib native crash：在主脚本导入 Matplotlib 前规范化当前 conda 环境 DLL 搜索路径，并让全流程子进程优先使用所选 Python 环境路径。
-
-   增强 Exp3 续跑能力：支持从已有 prediction 重建 metrics，跳过已完成 subject，并修复 `_safe_pearson` 未定义导致的指标计算失败。
-   ```

@@ -4,16 +4,12 @@
 
 ## Windows / Conda 运行规则
 
+实验与验证使用 Conda `py311`（`D:\work\miniconda\envs\py311`），优先通过 `conda run -n py311 python ...` 执行；PyCharm 选择该环境的 `python.exe`。
+
 1. 直接调用 `envs\<env>\python.exe` 不等于激活 conda 环境。
 2. 在 Windows 下，任何会导入 Matplotlib、NumPy、PyTorch 等 native 包的主脚本，都必须先确保当前 conda env 的 DLL 路径优先。
 3. `utils/windows_conda_path.py` 是根因修复，应保留，并且必须在 `import matplotlib` 之前调用。
-4. `scripts/run_all_experiments.py` 启动子进程时，必须把所选 Python 环境的以下路径放到 `PATH` 最前：
-   - env root
-   - `Library\mingw-w64\bin`
-   - `Library\usr\bin`
-   - `Library\bin`
-   - `Scripts`
-   - `bin`
+4. 子进程的 `PATH` 须优先包含所选环境及其 `Library\mingw-w64\bin`、`Library\usr\bin`、`Library\bin`、`Scripts`、`bin`。
 5. 不要依赖当前终端里的 base conda、JDK、Git、CUDA、RTools 等路径顺序。
 
 ## Windows 中文编码规则
@@ -40,6 +36,6 @@
 
 ## 验证范围
 
-Windows 代码或运行环境修改后，须对修改的 Python 文件执行 `python -m py_compile <changed files>`，运行 `python scripts\diagnose_matplotlib_windows.py`，并完成 [绘图规则](PLOTTING.md) 中最小 Matplotlib smoke 和实际脚本最小真实验证。先按上文激活环境和设置 DLL 路径。
+验证限于改动影响范围；涉及绘图时按 [PLOTTING.md](PLOTTING.md) 验证。
 
 仅移动或修改 Markdown 时，验证 UTF-8、关键内容、规则迁移完整性、链接及乱码扫描；不把文档检查宣称为运行环境或主流程验证。

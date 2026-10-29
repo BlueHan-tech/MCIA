@@ -28,43 +28,13 @@
 3. 验证 `plot_completion_panel` 这类纯绘图函数时，import 链应只包含 `numpy`、`matplotlib` 和该函数直接需要的轻量工具。
 4. Windows 下如果 smoke 在 import 阶段失败，先判断是否为导入链/DLL/OpenMP 问题，不要误判为绘图实现失败。
 5. 独立 smoke 脚本如果放在 `outputs/`、`tmp/` 等子目录，必须显式把项目根目录加入 `sys.path`。
-6. Windows 下绘图 smoke 优先用真正激活的 conda 环境或 `conda run -n <env>` 执行；不要默认直接调用 `envs\<env>\python.exe`。
-7. `ensure_current_env_dll_path()` 必须在导入 `matplotlib.pyplot`、`torch`、`numpy` 之外的 native-heavy 项目前尽早执行。
-8. 如果遇到 OpenMP DLL 冲突，不要用 `KMP_DUPLICATE_LIB_OK=TRUE` 作为默认修复；应先清理导入顺序、PATH 顺序和顶层重依赖。
-9. smoke 验证应分两级：
+6. 如果遇到 OpenMP DLL 冲突，不要用 `KMP_DUPLICATE_LIB_OK=TRUE` 作为默认修复；应先清理导入顺序、PATH 顺序和顶层重依赖。
+7. smoke 验证应分两级：
    - 纯绘图 smoke：只测目标绘图函数能否保存 PNG。
-   - 主流程 smoke：模拟 01/02/03/04 实际脚本导入顺序和调用路径。
-10. 只有纯绘图 smoke 和主流程 smoke 都通过，才能说绘图改动已验证。
+   - 主流程 smoke：验证当前入口的实际导入顺序和调用路径。
+8. 验证结论分别注明纯绘图与实际调用路径的检查结果。
 
 ## Figures
 
-- 图像重建脚本必须直接复用当前评估入口的绘图函数；此处 Exp3/Exp4 沿用旧规则称谓，执行时核对实际脚本和依赖，不能仅凭阶段编号判断。
+- 图像重建脚本必须直接复用当前评估入口的绘图函数。
 - 图像生成不能默认跳过；临时护栏修复后必须清理。
-
-## 验证规则
-
-Windows 代码或运行环境修改后，先按 [WINDOWS.md](WINDOWS.md) 激活 conda 环境并保证 DLL 路径优先，再至少做以下验证（仅 Markdown 修改的范围见 WINDOWS.md）：
-
-1. 语法检查：
-
-   ```powershell
-   python -m py_compile <changed files>
-   ```
-
-2. 路径/DLL 诊断：
-
-   ```powershell
-   python scripts\diagnose_matplotlib_windows.py
-   ```
-
-3. 最小 Matplotlib smoke：
-
-   ```powershell
-   python -c "import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt; import numpy as np; fig,ax=plt.subplots(); ax.bar(np.arange(5), np.arange(5)); fig.canvas.draw(); fig.savefig('outputs/matplotlib_smoke.png'); print('ok')"
-   ```
-
-4. 对实际脚本做最小真实验证，例如：
-
-   ```powershell
-   python test\test_completion_output_range.py
-   ```

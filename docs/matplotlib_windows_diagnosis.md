@@ -9,13 +9,13 @@ Use `scripts/diagnose_matplotlib_windows.py`. It runs every probe in a separate 
 From the project root, in the target conda environment:
 
 ```powershell
-C:\Users\zouyuhan.pat\miniforge3\envs\apple\python.exe scripts\diagnose_matplotlib_windows.py
+conda run -n py311 python scripts\diagnose_matplotlib_windows.py
 ```
 
 To clear only Matplotlib font cache files first:
 
 ```powershell
-C:\Users\zouyuhan.pat\miniforge3\envs\apple\python.exe scripts\diagnose_matplotlib_windows.py --clear-font-cache
+conda run -n py311 python scripts\diagnose_matplotlib_windows.py --clear-font-cache
 ```
 
 The script writes `outputs/matplotlib_diagnosis/diagnosis_report.json` and test artifacts under `outputs/matplotlib_diagnosis/`.
@@ -63,22 +63,6 @@ The script prints `where` results for:
 - `libiomp5md.dll`
 
 Multiple copies from different conda environments, system directories, Git/RTools, CUDA paths, or unrelated application folders are suspicious. The first one on `PATH` usually wins DLL loading.
-
-## Clean Environment Comparison
-
-Create a clean plotting environment and run the same script:
-
-```powershell
-conda create -n mcia_plot -c conda-forge python=3.10 numpy matplotlib pillow
-conda activate mcia_plot
-python scripts\diagnose_matplotlib_windows.py
-```
-
-Interpretation:
-
-- `apple` fails but `mcia_plot` succeeds: the `apple` environment is polluted or binary-inconsistent.
-- Both fail at the same point: suspect system-level fonts, DLL search path, permissions, graphics stack, or antivirus/security interference.
-- Only PNG fails: prefer SVG/PDF for figures temporarily, and inspect Pillow/libpng/zlib.
 
 ## Project Fix
 
