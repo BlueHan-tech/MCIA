@@ -1,4 +1,6 @@
-> 当前实现已固定为 S1 短时缺失 20%、S2 单整通道缺失 40%、S3 双整通道缺失 40%。本文后续关于 S4 和 curriculum 的内容仅作历史设计记录，不代表当前主流程默认行为。
+> 文档定位：本文是设计与讨论笔记，混有方案草稿、历史结果和待核验分析，不是当前规范。当前方案以 `docs/EXPERIMENT_PROTOCOL.md` 为准，未决定的想法见 `docs/CHANGE_CANDIDATES.md`，结果以对应 run 产物为证。以下旧实现注记的版本和日期未注明，不应直接视为当前状态。
+
+> 历史实现注记：某一版本使用 S1 短时缺失 20%、S2 单整通道缺失 40%、S3 双整通道缺失 40%；关于 S4 和 curriculum 的内容是历史设计。它们是否适用于当前实现须另行核对。
 
 Multi-Channel Imputation with Axial-attention
 # 现有数据处理
@@ -883,7 +885,7 @@ DB3 原始 EMG（含伪影）
 ## 优先级建议
 全量训练结束跑完所有实验后，按以下顺序制图：
 Figure 0 → Table 1 → Figure 3 → Figure 8/9（这四个是审稿人最关注的）→ Figure 2/7（定性可视化）→ 其余。
-# 最新结果
+# 历史结果摘录（来源与运行口径待核验）
 
 ## 补全效果图
 ![[whole_ch_rank01_idx8.png]]
@@ -969,7 +971,7 @@ The fixed target is the zero-based CyberGlove subset `[1, 2, 4, 5, 7, 8, 11, 12,
 | **均值**  | **16.05%**       | —              |
 
 > _注：当前规则检测仅覆盖硬件层故障，接触不良/运动伪影未检测，是实验三提升空间有限的主要原因。AE 第二关检测器预计可将 masked_ratio 提升至 25–35%。_
-# 分析
+# 历史分析草稿（观点需按原始文献和项目证据复核）
 ## gemini说不行
 直接给你一个明确的结论：**在目前的主流顶会和高水平期刊中，几乎没有任何文章直接利用 NinaPro DB3（截肢患者数据集）去做连续的“关节角度估计（Continuous Joint Angle Estimation / Kinematics Regression）”。**
 

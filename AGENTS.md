@@ -21,9 +21,9 @@
 
 ## 跨工具协作与决策纪律
 
-1. 每次任务开始前，检查 `git status --short` 和本任务相关的 `git diff`；阅读 [协作状态与决策记录](docs/COLLABORATION.md) 中的当前状态、待核验项和本任务相关决策即可，无需通读无关历史证据。工作区既有改动默认属于其他工具或用户；不得覆盖、格式化或顺带修改。
+1. 每次任务开始前，检查 `git status --short` 和本任务相关的 `git diff`；阅读[项目决定与实验记录](docs/COLLABORATION.md)中的当前状态、待核验项和相关决定即可，无需通读历史证据。工作区既有改动默认属于其他工具或用户；不得覆盖、格式化或顺带修改。
 2. 讨论方案时简要说明当前做法、问题和拟议方向。确认修改后，同步更新协议并按决定落实；不要求先实验，也不因旧协议不一致而搁置。代码修改和实验按用户授权执行；未有证据的效果标为待验证。
-3. 采用、拒绝、失败、冻结或发现冲突的实质决策，更新 `docs/COLLABORATION.md` 的决策索引，简要记录状态、结论、适用边界和日期，并链接详细证据。详细参数、逐被试结果和运行异常保存在 run 产物或历史档案，不重复抄录。`CHANGELOG.md` 只记录已发生的文件事实，不替代决策记录。
+3. 采用、拒绝、失败或发现冲突的实质决策，更新 `docs/COLLABORATION.md` 的决定索引，简要注明状态和适用范围，并链接详细证据。详细结果保存在本文后部的历史记录或 run 产物；`CHANGELOG.md` 只记文件变化。
 4. 每次任务结束前，必须再次检查与任务相关的 diff；若发现其他工具并发改动、代码与协议冲突、或状态文档与实现不一致，记录为待核验项并报告，不得自行选择其中一个版本继续执行。
 5. 新增或删除脚本/配置、改变主链路，或形成新的实质实验决策时，在协作记录注明入口或结论、目的、主链路状态及验证状态。普通 run 产物由其 run 目录记录；已淘汰方案保留简短拒绝原因，避免重复试验。
 
@@ -38,7 +38,7 @@
 | Windows、Conda、DLL、编码和受限编辑 | [docs/rules/WINDOWS.md](docs/rules/WINDOWS.md) |
 | Matplotlib 诊断、smoke 与 figures | [docs/rules/PLOTTING.md](docs/rules/PLOTTING.md) |
 | run、resume、outputs 与 changelog | [docs/rules/REPRODUCIBILITY.md](docs/rules/REPRODUCIBILITY.md) |
-| 跨工具共享状态、方案决策、已验证/已拒绝路径与待核验冲突 | [docs/COLLABORATION.md](docs/COLLABORATION.md) |
+| 当前决定索引、待核验问题与历史实验依据 | [docs/COLLABORATION.md](docs/COLLABORATION.md) |
 | DB3 质量掩码与 WC-BQD 检测器设计、验证与文献支撑 | [docs/WCBQD_DESIGN.md](docs/WCBQD_DESIGN.md) |
 | 学术检索与证据综合工作流 | 全局 `academic-research` Skill；安装位置与工具配置见 [docs/ACADEMIC_RESEARCH_SETUP.md](docs/ACADEMIC_RESEARCH_SETUP.md) |
 
