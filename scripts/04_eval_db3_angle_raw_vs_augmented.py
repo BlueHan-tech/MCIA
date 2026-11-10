@@ -1126,13 +1126,19 @@ def waveform_angle_figures(subject, payload, output, scope, config):
         output_postprocess=continuous_output_label(config))
 
 
-def recover_waveform_angle(path, subject, output, scope, config, model_ids):
+def assert_waveform_angle_payload(payload, context, *, smoke):
     from data.waveform import WAVEFORM_FORMAT
 
+    assert_key10_prediction_payload(payload, context, schema=WAVEFORM_FORMAT,
+                                    source_exercises=(1,) if smoke else (1, 2))
+    if str(payload['format']) != WAVEFORM_FORMAT:
+        raise ValueError(f'Incompatible angle prediction format: {context}')
+
+
+def recover_waveform_angle(path, subject, output, scope, config, model_ids, *, smoke):
     with np.load(path, allow_pickle=False) as payload:
-        assert_key10_prediction_payload(payload, str(path))
-        if (str(payload['format']) != WAVEFORM_FORMAT
-                or any(str(payload[f'{arm}_checkpoint_sha256']) != digest for arm, digest in model_ids.items())):
+        assert_waveform_angle_payload(payload, str(path), smoke=smoke)
+        if any(str(payload[f'{arm}_checkpoint_sha256']) != digest for arm, digest in model_ids.items()):
             raise ValueError(f'Incompatible angle prediction payload: {path}')
         target = payload['target']
         continuous = payload['continuous_target'][None, :, :]
@@ -1194,7 +1200,8 @@ def main():
             result['model_sha256'] = model_ids
             prediction_path = output / 'predictions' / f'S{subject:02d}_waveform_{scope}.npz'
             if prediction_path.is_file():
-                result = recover_waveform_angle(prediction_path, subject, output, scope, config, model_ids)
+                result = recover_waveform_angle(prediction_path, subject, output, scope, config, model_ids,
+                                                smoke=args.smoke)
                 save_progress(result)
                 print(f'S{subject:02d}: restored angle metrics from {prediction_path.name}', flush=True)
                 continue
@@ -1203,9 +1210,7 @@ def main():
                 frozen_development_subject(output, subject, model_ids)
                 dev_path = output / 'predictions' / f'S{subject:02d}_waveform_development.npz'
                 with np.load(dev_path, allow_pickle=False) as data:
-                    assert_key10_prediction_payload(data, str(dev_path))
-                    if str(data['format']) != WAVEFORM_FORMAT:
-                        raise ValueError(f'Invalid frozen angle statistics: {dev_path}')
+                    assert_waveform_angle_payload(data, str(dev_path), smoke=False)
                     keys = ['glove_min', 'glove_scale']
                     for arm in 'ABC':
                         keys.extend((f'{arm}_mean', f'{arm}_std', f'continuous_calibration_{arm}_gain',
@@ -1243,6 +1248,7 @@ def main():
             y = (y - ymin) / yscale
             predictions, calibrations, groups = {}, {}, {}
             payload = {**key10_prediction_metadata(), 'format': np.asarray(WAVEFORM_FORMAT),
+                       'angle_data_schema': np.asarray(WAVEFORM_FORMAT), 'source_exercises': np.asarray(exercises),
                        'target': y[evaluate], 'window_start_2khz': np.concatenate(raw_starts)[evaluate],
                        'exercise': np.concatenate(exercise_ids)[evaluate], 'repetition': rep[evaluate],
                        'glove_min': ymin, 'glove_scale': yscale,
@@ -1277,6 +1283,7 @@ def main():
             payload.update(continuous['payload'])
             for group, row in continuous['group_results'].items():
                 groups[group].update(row)
+            assert_waveform_angle_payload(payload, str(prediction_path), smoke=args.smoke)
             np.savez_compressed(prediction_path, **payload)
             figures = waveform_angle_figures(subject, payload, output, scope, config)
             values = {group: groups[group]['continuous_subsets']['global']['rmse'] for group in 'ABC'}

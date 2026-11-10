@@ -531,7 +531,8 @@ def regenerate_waveform_figures(run, config, scope):
     from utils.waveform_pipeline import plot_waveform_validation_examples
 
     config['target_fs'] = ANGLE_FS
-    if json.loads((run / '00_config' / 'waveform.json').read_text(encoding='utf-8'))['smoke']:
+    smoke = json.loads((run / '00_config' / 'waveform.json').read_text(encoding='utf-8'))['smoke']
+    if smoke:
         config['regressor_viz_trials_per_subject'] = 1
     angle = run / '03_angle_prediction'
     gesture = run / '04_gesture_recognition'
@@ -540,9 +541,7 @@ def regenerate_waveform_figures(run, config, scope):
     for path in sorted((angle / 'predictions').glob(f'S*_waveform_{scope}.npz')):
         sid = int(path.name[1:3])
         with np.load(path, allow_pickle=False) as data:
-            exp3_figs.assert_key10_prediction_payload(data, str(path))
-            if str(data['format']) != WAVEFORM_FORMAT:
-                raise ValueError(f'Incompatible waveform predictions: {path}')
+            exp3_figs.assert_waveform_angle_payload(data, str(path), smoke=smoke)
             count += len(exp3_figs.waveform_angle_figures(sid, data, angle, scope, config))
     report_path = gesture / 'metrics' / f'waveform_{scope}.json'
     report = json.loads(report_path.read_text(encoding='utf-8'))

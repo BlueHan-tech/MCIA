@@ -80,7 +80,9 @@ def key10_prediction_metadata() -> dict:
     }
 
 
-def assert_key10_prediction_payload(payload: Mapping[str, np.ndarray], context: str) -> None:
+def assert_key10_prediction_payload(payload: Mapping[str, np.ndarray], context: str, *,
+                                    schema='e1_e2_exercise_separated_train_only_normalization_v1',
+                                    source_exercises=(1, 2)) -> None:
     """拒绝旧版 22 维 NPZ 产物，而非静默从其继续运行。"""
     required = {
         "target",
@@ -98,10 +100,10 @@ def assert_key10_prediction_payload(payload: Mapping[str, np.ndarray], context: 
             "请为固定 Key10 目标创建新的 run。"
         )
     assert_key10_target(np.asarray(payload["target"]), f"{context} target")
-    if str(np.asarray(payload["angle_data_schema"]).item()) != "e1_e2_exercise_separated_train_only_normalization_v1":
-        raise ValueError(f"{context} 未使用当前 E1+E2 无泄漏数据模式。")
-    if tuple(np.asarray(payload["source_exercises"], dtype=np.int64).tolist()) != (1, 2):
-        raise ValueError(f"{context} 未声明已锁定的 E1+E2 源 exercise。")
+    if str(np.asarray(payload["angle_data_schema"]).item()) != schema:
+        raise ValueError(f"{context}: expected angle data schema {schema}")
+    if tuple(np.asarray(payload["source_exercises"], dtype=np.int64).tolist()) != source_exercises:
+        raise ValueError(f"{context}: expected source exercises {source_exercises}")
     if str(np.asarray(payload["angle_target_name"]).item()) != KEY10_TARGET_NAME:
         raise ValueError(f"{context} 未声明 {KEY10_TARGET_NAME}。")
     if int(np.asarray(payload["angle_target_dimension"]).item()) != KEY10_DIM:

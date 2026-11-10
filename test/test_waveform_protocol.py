@@ -184,3 +184,19 @@ def test_reject_legacy_and_wrong_parent_checkpoints():
                 assert 'Incompatible waveform checkpoint' in str(exc)
             else:
                 raise AssertionError('A legacy or unrelated checkpoint was accepted')
+
+
+def test_key10_prediction_schema_separates_smoke_and_legacy():
+    from data.waveform import WAVEFORM_FORMAT
+    from utils.kinematic_target import assert_key10_prediction_payload, key10_prediction_metadata
+
+    prediction = {**key10_prediction_metadata(), 'angle_data_schema': np.asarray(WAVEFORM_FORMAT),
+                  'source_exercises': np.asarray([1]), 'target': np.zeros((2, 60, 10))}
+    assert_key10_prediction_payload(prediction, 'waveform smoke', schema=WAVEFORM_FORMAT, source_exercises=(1,))
+    for schema, exercises in ((WAVEFORM_FORMAT, (1, 2)), ('legacy', (1,))):
+        try:
+            assert_key10_prediction_payload(prediction, 'incompatible', schema=schema, source_exercises=exercises)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('Incompatible Key10 schema was accepted')
