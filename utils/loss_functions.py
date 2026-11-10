@@ -7,6 +7,48 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def waveform_rms_terms(completed, target, missing):
+    weights = missing.unfold(1, 80, 40).mean(dim=-1)
+    completed_rms = torch.linalg.vector_norm(completed.unfold(1, 80, 40), dim=-1) / 80**0.5
+    target_rms = torch.linalg.vector_norm(target.unfold(1, 80, 40), dim=-1) / 80**0.5
+    return (weights * (completed_rms - target_rms).abs()).sum(), weights.sum()
+
+
+class WaveformImputationLoss(nn.Module):
+    """D-040 loss in the fixed DB2 training Z-score units."""
+
+    def __init__(self):
+        super().__init__()
+        for width in (64, 128):
+            self.register_buffer(f'window_{width}', torch.hann_window(width))
+
+    def forward(self, pred, target, keep):
+        if isinstance(pred, dict):
+            pred = pred['pred']
+        pred, target = pred.float(), target.float()
+        missing = ~keep.bool()
+        completed = torch.where(missing, pred, target)
+        missing_float = missing.to(target.dtype)
+        error = completed - target
+        charbonnier = (torch.sqrt(error.square() + 1e-8) * missing_float).sum() / missing.sum().clamp_min(1)
+        rms_sum, rms_weight = waveform_rms_terms(completed, target, missing_float)
+        rms = rms_sum / rms_weight.clamp_min(torch.finfo(target.dtype).tiny)
+        stft = target.new_zeros(())
+        for width in (64, 128):
+            hop = width // 4
+            window = getattr(self, f'window_{width}')
+            weights = missing.unfold(1, width, hop).any(dim=-1)
+            p = torch.fft.rfft(completed.unfold(1, width, hop) * window).abs() / window.sum()
+            y = torch.fft.rfft(target.unfold(1, width, hop) * window).abs() / window.sum()
+            delta = (torch.log1p(p) - torch.log1p(y)).abs().mean(dim=-1)
+            stft = stft + 0.5 * (delta * weights).sum() / weights.sum().clamp_min(1)
+        seam_mask = missing[:, 1:] != missing[:, :-1]
+        seam = (error.diff(dim=1).abs() * seam_mask).sum() / seam_mask.sum().clamp_min(1)
+        return charbonnier + 0.2 * rms + 0.1 * stft + 0.05 * seam, {
+            'charbonnier': charbonnier, 'rms': rms, 'stft': stft, 'seam': seam,
+        }
+
+
 class EMGImputationLoss(nn.Module):
     """缺失区域 EMG 补全损失。"""
 

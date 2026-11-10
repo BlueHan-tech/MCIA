@@ -188,25 +188,7 @@ _SCENARIO_ALIAS = {
 
 
 class ScenarioMixMaskGenerator:
-    """4-场景退化启发混合掩码生成器
-
-    ─ 场景 ──────────────────────────────────────────────────────────────────
-      S1 scattered（分散）: 每通道独立伯努利采样，整通道置为缺失（组内保留硬约束）
-                           + 存活通道的补丁对齐时间块
-      S2 adjacent_cluster（相邻簇）: 屈肌/伸肌组内按通道编号挑 2–3 个相邻通道整条置为缺失
-                           + 其余通道弱时间块
-      S3 cross_group（跨组）: 恰好 1 个屈肌 + 1 个伸肌 + 1 个大臂通道整条置为缺失
-                           + 其余通道中等时间块
-      S4 heavy_time（长时遮挡）: 不整条丢弃通道，每通道独立使用补丁对齐时间块
-
-    ─ 契约保证（防数据泄露） ──────────────────────────────────────────────────
-      [C1] 输出 mask ∈ {0.0, 1.0} 严格布尔浮点，无中间值
-      [C2] 时间块起点 ∈ {0, P, 2P, ...}，长度 ∈ {k*P | k ≥ 2}
-           → 采样点级与补丁级掩码比例严格相等
-           → 下游 mcia_core.derive_patch_time_mask 的最小池化派生无信息损失
-      [C3] 每组存活通道数 ≥ min_alive_per_group[group]
-           → 每个样本都存在"可解"的跨通道推断路径
-    """
+    """Patch-aligned S1/S2/S3 sampling and legacy 200 Hz temporal blocks."""
 
     def __init__(
         self,
@@ -305,6 +287,7 @@ class ScenarioMixMaskGenerator:
                     params['n_blocks'], params['block_len_patches'])
         return mask_ct
 
+
     def _apply_s1(self, mask_ct: np.ndarray, params: Dict) -> np.ndarray:
         return self._apply_temporal_blocks(mask_ct, params, set())
 
@@ -363,6 +346,24 @@ class ScenarioMixMaskGenerator:
             batch_size, channels, steps, device=str(emg_batch.device), scenario=scenario
         )
         return mask.permute(0, 2, 1) if btc else mask
+
+
+class WaveformScenarioMix(ScenarioMixMaskGenerator):
+    """One patch-aligned block on a sampled subset of surviving electrodes."""
+
+    def __init__(self, **kwargs):
+        super().__init__(time_steps=600, patch_size=40, **kwargs)
+
+    def _dispatch(self, mask_ct, scenario):
+        killed_count, block_count = {'s1': (0, 4), 's2': (1, 4), 's3': (2, 3)}[_SCENARIO_ALIAS.get(scenario, scenario)]
+        killed = self._sample_victim_channels(killed_count) if killed_count else set()
+        mask_ct[sorted(killed)] = 0
+        survivors = sorted(set(range(self.n_channels)) - killed)
+        for channel in self.rng.choice(survivors, size=block_count, replace=False):
+            length = self.rng.choice((4, 6, 8))
+            start = self.rng.integers(self.num_patches - length + 1)
+            mask_ct[channel, start * self.patch_size:(start + length) * self.patch_size] = 0
+        return mask_ct
 
 
 class RuleAlignedMaskGenerator:

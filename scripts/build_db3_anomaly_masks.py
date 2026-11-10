@@ -1,120 +1,66 @@
 ﻿"""
-使用与场景对齐的规则检测器构建 DB3 异常掩码。
-
-默认点击运行：
-    - 加载 config.yaml 中配置的全部 DB3 被试
-    - 逐被试拟合规则
-    - 将掩码与规则元数据保存至 outputs/db3_anomaly_masks/
-
-本脚本不运行 MCIA 补全，也不修改实验输出。
+Build D-035/D-036 masks and preview repetition 6 flags.
 """
 
 import sys
 from pathlib import Path
 
-import numpy as np
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from data.dataset_db3_emg import prepare_data_db3
-from data.ninapro_loader import NinaProDataLoader
-from utils.paper_pipeline import flatten_pipeline_config, load_yaml_config, save_json, set_seed
-from utils.rule_anomaly_detector import LABEL_NAMES, RuleAnomalyDetector
+from utils.windows_conda_path import ensure_current_env_dll_path
+
+ensure_current_env_dll_path()
+
+import numpy as np
+
+def preview_validation(path, record, quality):
+    selected = np.argwhere(quality.flagged & (quality.partitions == 1)[:, None])
+    if not len(selected):
+        return
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    from data.waveform import FS
+    from utils.waveform_quality import SHORT
+
+    window, channel = selected[0]
+    start = quality.starts[window]
+    lo, hi = max(0, start - SHORT), min(len(record.raw), start + 2 * SHORT)
+    sample = np.arange(lo, hi)
+    sample = sample[record.repetitions[sample] == 6]
+    time_ms = (sample - start) * 1000 / FS
+    fig, axes = plt.subplots(2, 1, figsize=(8, 4), sharex=True, layout='constrained')
+    for axis, values, title in zip(axes, (record.raw, record.filtered), ('Raw', 'D-014 bandpass')):
+        axis.plot(time_ms, values[sample, channel], linewidth=1)
+        axis.axvspan(0, SHORT * 1000 / FS, color='tab:orange', alpha=0.18)
+        axis.set_ylabel(title)
+    axes[0].set_title(f'Validation repetition 6, electrode {channel + 1}, sample {start}')
+    axes[-1].set_xlabel('Time from flagged window start (ms)')
+    fig.savefig(path, dpi=140)
+    plt.close(fig)
 
 
-def _jsonable_stats(stats: dict) -> dict:
-    out = {}
-    for key, value in stats.items():
-        if isinstance(value, np.ndarray):
-            out[key] = value.tolist()
-        else:
-            out[key] = float(value)
-    return out
+def main():
+    import argparse
+    from utils.waveform_db3 import prepare_db3_exercise, targets, write_quality
+    from utils.waveform_pipeline import setup_waveform
 
-
-def main() -> None:
-    cfg = load_yaml_config(PROJECT_ROOT)
-    config = flatten_pipeline_config(cfg)
-    set_seed(int(config.get("transfer_random_seed", 42)))
-
-    out_dir = PROJECT_ROOT / "outputs" / "db3_anomaly_masks"
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    subjects = list(config.get("transfer_db3_subjects", range(1, 12)))
-    loader = NinaProDataLoader(config["db2_path"], config["db3_path"], fs=config["orig_fs"])
-    group_indices = config.get("group_indices")
-    patch_size = int(config.get("patch_size", 8))
-
-    manifest = {
-        "label_names": {str(k): v for k, v in LABEL_NAMES.items()},
-        "subjects": [],
-    }
-
-    print("=" * 80)
-    print("[DB3 异常掩码] 与场景对齐的规则检测器")
-    print("=" * 80)
-
-    for subject_id in subjects:
-        print(f"\n--- DB3 S{int(subject_id):02d} ---")
-        try:
-            segments, _ = prepare_data_db3(loader, [int(subject_id)], config)
-            detector = RuleAnomalyDetector(
-                patch_size=patch_size,
-                group_indices=group_indices,
-            ).fit(segments)
-            result = detector.detect_batch(segments)
-
-            save_path = out_dir / f"db3_S{int(subject_id):02d}_anomaly_masks.npz"
-            np.savez_compressed(
-                save_path,
-                original=segments[:, : result["mask"].shape[1], :].astype(np.float32),
-                mask=result["mask"],
-                labels=result["labels"],
-                patch_mask=result["patch_mask"],
-                patch_labels=result["patch_labels"],
-                unrecoverable_patches=result["unrecoverable_patches"],
-                mask_ratio=result["mask_ratio"],
-                unrecoverable_ratio=result["unrecoverable_ratio"],
-                dead_channels=result["dead_channels"],
-                label_codes=np.array(sorted(LABEL_NAMES), dtype=np.int32),
-                label_names=np.array([LABEL_NAMES[i] for i in sorted(LABEL_NAMES)], dtype=object),
-            )
-
-            stats_path = out_dir / f"db3_S{int(subject_id):02d}_anomaly_stats.json"
-            stats = {
-                "subject_id": int(subject_id),
-                "n_segments": int(len(segments)),
-                "mask_ratio_mean": float(result["mask_ratio"].mean()),
-                "mask_ratio_max": float(result["mask_ratio"].max()),
-                "unrecoverable_ratio_mean": float(result["unrecoverable_ratio"].mean()),
-                "dead_channels_1based": [int(c + 1) for c in result["dead_channels"]],
-                "fit_stats": _jsonable_stats(detector.fit_stats_),
-            }
-            save_json(stats_path, stats)
-            manifest["subjects"].append(
-                {
-                    "subject_id": int(subject_id),
-                    "status": "ok",
-                    "file": str(save_path),
-                    "stats_file": str(stats_path),
-                    "n_segments": int(len(segments)),
-                    "mask_ratio_mean": stats["mask_ratio_mean"],
-                    "dead_channels_1based": stats["dead_channels_1based"],
-                }
-            )
-            print(
-                f"  saved {save_path} | mask_mean={stats['mask_ratio_mean']:.2%} "
-                f"| dead={stats['dead_channels_1based']}"
-            )
-        except Exception as exc:
-            manifest["subjects"].append(
-                {"subject_id": int(subject_id), "status": "skipped", "reason": str(exc)}
-            )
-            print(f"  已跳过：{exc}")
-
-    save_json(out_dir / "manifest.json", manifest)
-    print(f"\nDB3 异常掩码已保存至：{out_dir}")
+    parser = argparse.ArgumentParser(description='Build and preview D-035/D-036 masks')
+    parser.add_argument('--smoke', action='store_true')
+    args = parser.parse_args()
+    cfg, run, loader, _ = setup_waveform(PROJECT_ROOT, smoke=args.smoke)
+    figure_dir = run / '02_db3_transfer_completion' / 'figures' / 'quality'
+    figure_dir.mkdir(parents=True, exist_ok=True)
+    for subject in [5, 6] if args.smoke else targets(cfg):
+        exercises = [1] if args.smoke else cfg['exp4_gesture']['exercises']
+        for exercise in exercises:
+            record, quality = prepare_db3_exercise(cfg, loader, subject, exercise)
+            write_quality(run, subject, exercise, record, quality, smoke=args.smoke)
+            preview_validation(figure_dir / f'S{subject:02d}_E{exercise}_validation.png', record, quality)
+            flags = int(quality.flagged[quality.partitions == 1].sum())
+            print(f'S{subject:02d} E{exercise}: {flags} validation electrode-windows flagged', flush=True)
 
 
 if __name__ == "__main__":

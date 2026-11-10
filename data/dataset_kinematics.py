@@ -83,7 +83,7 @@ def _window_rows(labels, repetitions, window_size, stride):
 
 def prepare_kinematics_data(data_loader, subject_ids, config, exercises=(1,), db="db2",
                             return_metadata=False):
-    """构建 exercise 分离的窗口，EMG 和 glove 缩放仅由训练集拟合。"""
+    """Legacy envelope windows and scaling for historical runs."""
     factor = int(config["orig_fs"] / config["target_fs"])
     window_size, stride = int(config["window_size"]), int(config["stride"])
     all_emg, all_angle, all_subjects, all_reps, all_exercises, all_starts, all_masks = [], [], [], [], [], [], []

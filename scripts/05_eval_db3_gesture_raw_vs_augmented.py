@@ -1,4 +1,4 @@
-"""DB3 48 类手势识别正式主实验。"""
+"""DB3 49-class A/B/C gesture experiment and legacy waveform readers."""
 from __future__ import annotations
 
 import argparse
@@ -24,7 +24,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, confusion_matrix, f1_score
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Subset
 
 from data.dataset_db2_emg import moving_average
 from data.ninapro_loader import NinaProDataLoader
@@ -175,10 +175,11 @@ def apply_mcia(mcia: nn.Module, raw_windows: np.ndarray, masks: np.ndarray,
 
 
 def metrics(y_true: np.ndarray, y_pred: np.ndarray, n_classes: int) -> dict:
+    labels = np.arange(n_classes) if n_classes == 49 else None
     return {
         "accuracy": float(accuracy_score(y_true, y_pred)),
         "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
-        "macro_f1": float(f1_score(y_true, y_pred, average="macro", zero_division=0)),
+        "macro_f1": float(f1_score(y_true, y_pred, labels=labels, average="macro", zero_division=0)),
         "confusion_matrix": confusion_matrix(y_true, y_pred, labels=np.arange(n_classes)).tolist(),
     }
 
@@ -202,18 +203,21 @@ def train_classifier(emg: np.ndarray, labels: np.ndarray, train_idx: np.ndarray,
     model = GestureTCN(emg.shape[-1], int(labels.max()) + 1, int(config["regressor_hidden_dim"]),
                        int(config["regressor_n_layers"]), int(config["regressor_kernel_size"]),
                        float(config["regressor_model_dropout"])).to(device)
-    batch_size = int(config["regressor_batch_size"])
-    train_loader = DataLoader(GestureDataset(emg[train_idx], labels[train_idx]), batch_size=batch_size,
-                              shuffle=True, num_workers=0)
-    val_loader = DataLoader(GestureDataset(emg[val_idx], labels[val_idx]), batch_size=batch_size,
-                            shuffle=False, num_workers=0)
+    train_data = GestureDataset(emg[train_idx], labels[train_idx])
+    val_data = GestureDataset(emg[val_idx], labels[val_idx])
+    return fit_classifier(model, train_data, val_data, int(labels.max()) + 1, config, device)
+
+
+def fit_classifier(model, train_data, val_data, n_classes, config, device):
+    batch_size = int(config['regressor_batch_size'])
+    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False, num_workers=0)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=float(config["regressor_learning_rate"]), weight_decay=1e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="max", factor=float(config["regressor_lr_factor"]),
         patience=int(config["regressor_lr_patience"]))
     best_state, best_macro_f1, no_improve, history = None, -np.inf, 0, []
-    n_classes = int(labels.max()) + 1
     for epoch in range(int(config["regressor_num_epochs"])):
         model.train()
         total_loss, seen = 0.0, 0
@@ -246,7 +250,7 @@ def train_classifier(emg: np.ndarray, labels: np.ndarray, train_idx: np.ndarray,
         if no_improve >= int(config["regressor_patience"]):
             break
     if best_state is None:
-        raise RuntimeError("GestureTCN 未产生验证状态")
+        raise RuntimeError('Gesture classifier produced no validation checkpoint')
     model.load_state_dict(best_state)
     return model, {"best_validation_macro_f1": float(best_macro_f1), "epochs": int(len(history)), "history": history}
 
@@ -282,96 +286,119 @@ def mask_summary(metadata: dict) -> dict:
     }
 
 
-def main() -> None:
-    config = flatten_pipeline_config(load_yaml_config(ROOT))
-    device = config["device"]
-    run_dir = Path(config["run_dir"])
-    out_dir = run_dir / "04_gesture_recognition"
-    for name in ("metrics", "predictions", "figures", "checkpoints", "logs"):
-        (out_dir / name).mkdir(parents=True, exist_ok=True)
+def main():
+    from data.waveform import WAVEFORM_FORMAT, ChannelStats
+    from models.prediction.dsranet import DSRANet
+    from utils.paper_pipeline import save_json
+    from utils.waveform_db3 import abc_waveforms, load_abc_models, prepare_db3_exercise
+    from utils.waveform_downstream import GestureSpectra, frozen_development_subject, paired_summary, split_windows
+    from utils.waveform_pipeline import setup_waveform
 
-    loader = NinaProDataLoader(config["db2_path"], config["db3_path"], fs=config["orig_fs"])
-    healthy_path = healthy_checkpoint(config)
-    healthy_mcia = build_mcia(config, device)
-    load_mcia_state_dict(healthy_mcia, healthy_path, device)
-    healthy_mcia.eval()
-    action_ids_expected = [int(value) for value in config["gesture_action_ids"]]
-    report = {
-        "task": "DB3 subject-internal 48-class gesture recognition",
-        "source_exercises": [int(value) for value in config["gesture_exercises"]],
-        "actions": action_ids_expected,
-        "excluded_actions": [49],
-        "split": {"train_repetitions": [1, 3, 4], "validation_repetitions": [6], "test_repetitions": [2, 5]},
-        "leakage_control": {
-            "window_policy": "action/repetition pure windows; no cross-exercise windows",
-            "quality_mask": "hard zero channels fitted on training repetitions 1/3/4; WC-BQD v0.1 within-channel baseline tests evaluated per input second",
-            "normalization": "per subject and exercise, train-free EMG preprocessing; no labels enter enhancement",
-            "model_selection": "validation macro-F1 only",
-        },
-        "model": {"name": "GestureTCN", "same_architecture_for_A_B": True},
-        "subjects": [],
-    }
-    for subject_id in config["gesture_subjects"]:
-        print(f"\n[手势] DB3 S{subject_id:02d}", flush=True)
-        raw_parts, b_parts, labels_parts, reps_parts, starts_parts, quality_parts = [], [], [], [], [], []
-        detector_report = {}
-        for exercise in config["gesture_exercises"]:
-            one, quality_report = load_db3_windows(loader, subject_id, int(exercise), config,
-                                   float(config["gesture_min_label_ratio"]),
-                                   float(config["gesture_min_repetition_ratio"]))
-            keep = np.isin(one.labels, action_ids_expected)
-            one = GestureWindows(one.emg[keep], one.labels[keep], one.repetitions[keep], one.starts[keep], one.quality_mask[keep])
-            b_values, b_meta = apply_mcia(healthy_mcia, one.emg, one.quality_mask, device,
-                                          int(config["regressor_batch_size"]),
-                                          patch_size=int(config["patch_size"]))
-            raw_parts.append(one.emg); b_parts.append(b_values)
-            labels_parts.append(one.labels); reps_parts.append(one.repetitions); starts_parts.append(one.starts); quality_parts.append(one.quality_mask)
-            detector_report[f"E{exercise}"] = {
-                "two_layer_quality_mask": quality_report,
-                "healthy_mask": mask_summary(b_meta),
-            }
-        windows = GestureWindows(np.concatenate(raw_parts), np.concatenate(labels_parts),
-                                 np.concatenate(reps_parts), np.concatenate(starts_parts),
-                                 np.concatenate(quality_parts))
-        train_idx, val_idx, test_idx = split_indices(windows.repetitions)
-        mapping, action_ids = class_mapping(windows.labels[train_idx])
-        if action_ids != action_ids_expected:
-            raise ValueError(f"S{subject_id:02d} 不具备锁定的 48 类训练集：{action_ids}")
-        encoded = encode_labels(windows.labels, mapping)
-        conditions = {"A_raw": np.concatenate(raw_parts), "B_healthy_prior": np.concatenate(b_parts)}
-        condition_report = {}
-        for condition, emg in conditions.items():
-            model, training = train_classifier(emg, encoded, train_idx, val_idx, config, device,
-                                               int(config["gesture_random_seed"]) + subject_id)
-            prediction = predict(model, emg, test_idx, int(config["regressor_batch_size"]), device)
-            truth = encoded[test_idx]
-            test_metrics = metrics(truth, prediction, len(action_ids))
-            trial_metrics = trial_majority_metrics(truth, prediction, windows.repetitions[test_idx], len(action_ids))
-            ckpt = out_dir / "checkpoints" / f"S{subject_id:02d}_{condition}.pth"
-            pred_path = out_dir / "predictions" / f"S{subject_id:02d}_{condition}_test.npz"
-            fig_path = out_dir / "figures" / f"S{subject_id:02d}_{condition}_48class_test_confusion.png"
-            torch.save(model.state_dict(), ckpt)
-            np.savez_compressed(pred_path, original_window_index=test_idx, repetition=windows.repetitions[test_idx],
-                                true_action=windows.labels[test_idx],
-                                predicted_action=np.asarray([action_ids[value] for value in prediction]),
-                                true_class=truth, predicted_class=prediction)
-            save_confusion_plot(np.asarray(test_metrics["confusion_matrix"]), action_ids,
-                                f"DB3 S{subject_id:02d} {condition}: 48-class test confusion", fig_path)
-            condition_report[condition] = {
-                "training": training, "test_window_metrics": test_metrics,
-                "test_trial_majority_metrics": trial_metrics, "checkpoint": str(ckpt),
-                "prediction_file": str(pred_path), "confusion_figure": str(fig_path)}
-            print(f"  {condition}：测试宏平均 F1={test_metrics['macro_f1']:.4f}，准确率={test_metrics['accuracy']:.4f}", flush=True)
-        report["subjects"].append({
-            "subject_id": int(subject_id), "status": "ok", "n_windows": int(len(windows.emg)),
-            "split_sizes": {"train": int(len(train_idx)), "val": int(len(val_idx)), "test": int(len(test_idx))},
-            "rule_detector": detector_report, "groups": condition_report,
-            "delta_macro_f1_vs_A": {
-                "B": float(condition_report["B_healthy_prior"]["test_window_metrics"]["macro_f1"] - condition_report["A_raw"]["test_window_metrics"]["macro_f1"]),
-            }})
-    path = Path(config["gesture_results_path"])
-    path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\n[手势] 结果：{path}", flush=True)
+    parser = argparse.ArgumentParser(description='DB3 49-class DSRANet A/B/C on the 2 kHz protocol')
+    parser.add_argument('--smoke', action='store_true')
+    parser.add_argument('--final', action='store_true', help='Use locked protocol and evaluate repetitions 2/5')
+    args = parser.parse_args()
+    if args.final and args.smoke:
+        parser.error('--final and --smoke are mutually exclusive')
+    cfg, run, loader, device = setup_waveform(ROOT, smoke=args.smoke)
+    config = flatten_pipeline_config(cfg)
+    options = cfg['exp4_gesture']
+    if args.smoke:
+        config['regressor_num_epochs'] = 1
+        config['regressor_batch_size'] = 4
+    scope = 'final' if args.final else 'development'
+    output = run / '04_gesture_recognition'
+    path = output / 'metrics' / f'waveform_{scope}.json'
+    report = (json.loads(path.read_text(encoding='utf-8')) if path.is_file() else
+              {'format': WAVEFORM_FORMAT, 'scope': scope, 'smoke': args.smoke, 'subjects': [], 'classes': 49})
+    for subject in [5] if args.smoke else options['subjects']:
+        if any(row['subject_id'] == subject and row['status'] == 'ok' for row in report['subjects']):
+            continue
+        result = {'subject_id': subject, 'status': 'failed'}
+        try:
+            models, stats, model_ids = load_abc_models(cfg, run, device, subject, smoke=args.smoke)
+            result['model_sha256'] = model_ids
+            frozen = {}
+            if args.final:
+                frozen_development_subject(output, subject, model_ids)
+                for arm in 'ABC':
+                    ckpt = output / 'checkpoints' / f'S{subject:02d}_{arm}_waveform_development.pt'
+                    payload = torch.load(ckpt, map_location='cpu', weights_only=True)
+                    if (payload['format'] != WAVEFORM_FORMAT or not np.array_equal(payload['db2_std'].numpy(), stats.std)):
+                        raise ValueError(f'Incompatible frozen gesture checkpoint: {ckpt}')
+                    frozen[arm] = payload
+            waves = {group: [] for group in 'ABC'}
+            starts, labels, reps, exercise_ids = [], [], [], []
+            for record_index, exercise in enumerate([1, 3] if args.smoke else options['exercises']):
+                rec, quality = prepare_db3_exercise(cfg, loader, subject, exercise,
+                                                    smoke=args.smoke, final=args.final, run=run)
+                delivery = abc_waveforms(run, subject, exercise, rec, quality, models, stats, model_ids,
+                                         device, smoke=args.smoke, final=args.final)
+                windows = rec.gestures
+                take = np.arange(len(windows.starts))
+                if args.smoke:
+                    take = np.r_[np.flatnonzero(np.isin(windows.repetitions, (1, 3, 4)))[:4],
+                                 np.flatnonzero(windows.repetitions == 6)[:4]]
+                for group in waves:
+                    waves[group].append(delivery[group])
+                starts.extend((record_index, start) for start in windows.starts[take])
+                labels.extend(windows.actions[take] - 1)
+                reps.extend(windows.repetitions[take])
+                exercise_ids.extend([exercise] * len(take))
+            y, rep = np.asarray(labels), np.asarray(reps)
+            tr, va, evaluate = split_windows(rep, final=args.final)
+            split_sizes = {'train': len(tr), 'validation': len(va), 'evaluation': len(evaluate)}
+            coverage = {name: np.unique(y[idx] + 1).tolist()
+                        for name, idx in [('train', tr), ('validation', va), ('evaluation', evaluate)]}
+            result.update(action_coverage=coverage, split_sizes=split_sizes)
+            if not args.smoke and any(len(classes) != 49 for classes in coverage.values()):
+                raise ValueError('At least one required partition does not cover all 49 actions')
+            groups = {}
+            payload = {'format': np.asarray(WAVEFORM_FORMAT), 'target_action': y[evaluate] + 1,
+                       'repetition': rep[evaluate], 'exercise': np.asarray(exercise_ids)[evaluate],
+                       'window_start_2khz': np.asarray(starts)[evaluate, 1]}
+            for group, signals in waves.items():
+                locked = frozen.get(group)
+                group_stats = ChannelStats(locked['mean'].numpy(), locked['std'].numpy()) if locked is not None else None
+                data = GestureSpectra(signals, starts, y, stats.std, tr, frozen_stats=group_stats)
+                set_reproducible_seed(options['random_seed'])
+                model = DSRANet().to(device)
+                ckpt = output / 'checkpoints' / f'S{subject:02d}_{group}_waveform_development.pt'
+                if locked is None:
+                    model, info = fit_classifier(model, Subset(data, tr.tolist()), Subset(data, va.tolist()), 49, config, device)
+                    torch.save({'model': model.state_dict(), 'format': WAVEFORM_FORMAT,
+                                'mean': torch.from_numpy(data.stats.mean), 'std': torch.from_numpy(data.stats.std),
+                                'db2_std': torch.from_numpy(stats.std)}, ckpt)
+                else:
+                    model.load_state_dict(locked['model'])
+                    info = {'checkpoint': str(ckpt)}
+                model.eval()
+                batches = DataLoader(Subset(data, evaluate.tolist()), batch_size=config['regressor_batch_size'])
+                with torch.inference_mode():
+                    pred = np.concatenate([model(batch['emg'].to(device)).argmax(1).cpu().numpy() for batch in batches])
+                window = metrics(y[evaluate], pred, 49)
+                trial = trial_majority_metrics(y[evaluate], pred, rep[evaluate], 49)
+                figure = output / 'figures' / scope / f'S{subject:02d}_{group}_confusion.png'
+                figure.parent.mkdir(parents=True, exist_ok=True)
+                save_confusion_plot(np.asarray(window['confusion_matrix']), list(range(1, 50)),
+                                    f'S{subject:02d} {group} {scope}', figure)
+                payload[f'{group}_prediction_action'] = pred + 1
+                groups[group] = dict(training=info, window_metrics=window, trial_metrics=trial, figure=str(figure))
+            prediction_path = output / 'predictions' / f'S{subject:02d}_waveform_{scope}.npz'
+            np.savez_compressed(prediction_path, **payload)
+            values = {group: groups[group]['window_metrics']['macro_f1'] for group in 'ABC'}
+            result.update(status='ok', groups=groups, predictions=str(prediction_path),
+                          improvements={group: values[group] - values['A'] for group in 'BC'})
+        except Exception as exc:
+            result['reason'] = str(exc)
+            print(f'S{subject:02d}: {exc}', flush=True)
+        report['subjects'] = [row for row in report['subjects'] if row['subject_id'] != subject] + [result]
+        report['paired_summary'] = paired_summary(
+            report['subjects'], lambda row, group: row['groups'][group]['window_metrics']['macro_f1'],
+            higher_is_better=True)
+        save_json(path, report)
+    if any(row['status'] != 'ok' for row in report['subjects']):
+        raise RuntimeError(f'Gesture evaluation has failed subjects. See {path}')
 
 
 if __name__ == "__main__":

@@ -24,6 +24,22 @@ signal:
   window_size: 256      # 分段窗口长度（采样点）
   stride: 128           # 滑动步长
 
+# 主实验有符号波形规格。上面的 signal 供历史 200 Hz 入口使用。
+waveform:
+  format: mcia-waveform-2khz-v1
+  fs: 2000
+  angle_fs: 200
+  window_size: 600
+  stride: 100
+  patch_size: 40
+  db2_exercises: [1]
+  seed: 42
+  donor_adaptation:
+    candidates: [2, 4, 8, 11]
+    learning_rate: 0.0001
+    max_epochs: 8
+    patience: 4
+
 # --- Level 0：DB3 直接回归基线 ---
 level0_baseline:
   # 仅纳入具有可用 glove 真值的 DB3 被试。
@@ -230,13 +246,10 @@ exp3_regressor:
   output_postprocess_savgol_polyorder: 2
 
 
-# --- 实验四：DB3 48 类手势识别 ---
+# --- 实验四：DB3 49 类手势识别 ---
 exp4_gesture:
-  subjects: [2,3,4,5,6,7,8,9,11]
+  subjects: [2,4,5,6,7,8,9,11]
   exercises: [1,2,3]
-  action_ids: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48]
-  min_label_ratio: 0.80
-  min_repetition_ratio: 0.80
   random_seed: 42
 
 # 独立文献复现。它们从不构成 MCIA A/B 终点的一部分，
@@ -253,7 +266,6 @@ c_adaptation:
   base: "exp1 healthy prior checkpoint"
 
 literature_baselines:
-  enabled: true
   db2_subjects: [1, 2]
   exercises: [1]
   max_windows: 512

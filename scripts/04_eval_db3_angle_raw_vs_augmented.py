@@ -664,6 +664,7 @@ ANGLE_PLOT_STYLES = {
     "target": ("#111111", "Ground Truth", "-", 1.45, 0.95),
     "A": ("#1f77b4", "A Raw", "-", 1.05, 0.88),
     "B": ("#d62728", "B Healthy-prior", "-", 1.05, 0.82),
+    "C": ("#238b45", "C Donor-prior", "-", 1.05, 0.82),
 }
 
 
@@ -672,7 +673,7 @@ def _plot_dim_trace(ax, xs: np.ndarray, dim: int, target_trial: np.ndarray,
     color, label, linestyle, width, alpha = ANGLE_PLOT_STYLES["target"]
     ax.plot(xs, target_trial[:, dim], color=color, lw=width, alpha=alpha,
             linestyle=linestyle, label=label)
-    for grp in ("A", "B"):
+    for grp in ("A", "B", "C"):
         pred = group_trials.get(grp)
         if pred is None:
             continue
@@ -680,7 +681,8 @@ def _plot_dim_trace(ax, xs: np.ndarray, dim: int, target_trial: np.ndarray,
         ax.plot(xs, pred[:, dim], color=color, lw=width, alpha=alpha,
                 linestyle=linestyle, label=label)
     ax.set_title(KEY10_CHANNEL_NAMES[dim], fontsize=9.5, fontweight="bold", pad=3)
-    ax.set_ylim(-0.05, 1.05)
+    if 'C' not in group_trials:
+        ax.set_ylim(-0.05, 1.05)
     ax.grid(True, alpha=0.25)
     ax.tick_params(labelsize=8)
 
@@ -711,21 +713,23 @@ def _save_abc_anatomy_plot(path: Path, target_segment: np.ndarray, group_segment
         axes_arr[row, col].axis("off")
     for ax in axes_arr[-1, :]:
         if ax.has_data():
-            ax.set_xlabel("连续测试区段内时间（秒）", fontsize=9)
+            ax.set_xlabel("连续区段内时间（秒）", fontsize=9)
 
     handles, labels = axes_arr.flat[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="upper center", ncol=4, fontsize=9, frameon=False,
                bbox_to_anchor=(0.5, 0.975))
     metric_parts = []
-    for grp in ("A", "B"):
+    for grp in ("A", "B", "C"):
         pred = group_segments.get(grp)
         if pred is not None:
             metric_parts.append(f"{grp} RMSE={_safe_dim_metrics(pred, target_segment, dims)['rmse']:.4f}")
+    group_text = '/'.join(group_segments)
+    scope = selection_info.get('scope', 'test')
     header = (
         f"DB3 S{subject_id:02d} | Key10 proxy | {len(target_segment) / target_fs:.2f}s "
-        f"continuous offline test trajectory | Segment {segment_rank:02d} | "
+        f"continuous offline {scope} trajectory | Segment {segment_rank:02d} | "
         f"time idx {selection_info['time_start']}-{selection_info['time_end_exclusive'] - 1} | "
-        f"{group_name.replace('_', ' ').title()} A/B comparison"
+        f"{group_name.replace('_', ' ').title()} {group_text} comparison"
     )
     detail_parts = [
         f"{selection_info['selection_mode']} | dynamic score={_metric_str(selection_info['dynamic_score'])} | "
@@ -763,6 +767,7 @@ def save_abc_comparison_figures(
     low_dynamic_coverage: bool = False,
     output_postprocess: str | None = None,
     return_selection: bool = False,
+    scope: str = 'test',
 ):
     cfg = dict(config or {})
     if "regressor_viz_trials_per_subject" not in cfg:
@@ -774,14 +779,15 @@ def save_abc_comparison_figures(
     required_groups = {"A", "B"}
     if target.ndim != 2 or not required_groups.issubset(group_predictions):
         raise ValueError("连续 A/B 图要求目标以及 A/B 两组连续预测")
-    if any(np.asarray(group_predictions[group]).shape != target.shape for group in required_groups):
+    if any(np.asarray(group_predictions[group]).shape != target.shape for group in group_predictions):
         raise ValueError("连续 A/B 预测必须与连续目标对齐")
     selection = build_abc_visualization_selection(
         target, times, overlaps, dynamics, cfg, low_dynamic_coverage
     )
     subject_dir = out_dir / f"S{subject_id:02d}"
+    suffix = 'ABC' if 'C' in group_predictions else 'AB'
     if subject_dir.exists():
-        for stale_path in subject_dir.glob(f"S{subject_id:02d}_*_AB.png"):
+        for stale_path in subject_dir.glob(f"S{subject_id:02d}_*_{suffix}.png"):
             stale_path.unlink()
     saved = []
     target_fs = int(cfg["target_fs"])
@@ -792,6 +798,7 @@ def save_abc_comparison_figures(
             **segment,
             "low_dynamic_coverage": selection.get("low_dynamic_coverage", False),
             "output_postprocess": output_postprocess,
+            "scope": scope,
         }
         group_segments = {group: np.asarray(values)[left:right] for group, values in group_predictions.items()}
         score_tag = _score_for_filename(float(segment["dynamic_score"]))
@@ -800,7 +807,7 @@ def save_abc_comparison_figures(
                 subject_dir /
                 f"S{subject_id:02d}_continuous_{rank:02d}_"
                 f"t{segment['time_start']:06d}-{segment['time_end_exclusive'] - 1:06d}_"
-                f"score{score_tag}_{group_name}_AB.png"
+                f"score{score_tag}_{group_name}_{suffix}.png"
             )
             _save_abc_anatomy_plot(
                 path, target[left:right], group_segments, group_spec,
@@ -1110,336 +1117,179 @@ def _subsets_from_report(report: dict) -> list[dict]:
     return rows
 
 
+def waveform_angle_figures(subject, payload, output, scope, config):
+    return save_abc_comparison_figures(
+        subject, {group: payload[f'pred_{group}_continuous'] for group in 'ABC'},
+        payload['continuous_target'], payload['continuous_time_indices'],
+        payload['continuous_overlap_counts'], payload['continuous_dynamic_mask'],
+        output / 'figures' / 'comparison' / scope, config=config, scope=scope,
+        output_postprocess=continuous_output_label(config))
+
+
+def recover_waveform_angle(path, subject, output, scope, config, model_ids):
+    from data.waveform import WAVEFORM_FORMAT
+
+    with np.load(path, allow_pickle=False) as payload:
+        assert_key10_prediction_payload(payload, str(path))
+        if (str(payload['format']) != WAVEFORM_FORMAT
+                or any(str(payload[f'{arm}_checkpoint_sha256']) != digest for arm, digest in model_ids.items())):
+            raise ValueError(f'Incompatible angle prediction payload: {path}')
+        target = payload['target']
+        continuous = payload['continuous_target'][None, :, :]
+        groups = {arm: {'subsets': evaluate_subsets(payload[f'pred_{arm}'], target),
+                        'continuous_subsets': evaluate_subsets(payload[f'pred_{arm}_continuous'][None, :, :], continuous)}
+                  for arm in 'ABC'}
+        figures = waveform_angle_figures(subject, payload, output, scope, config)
+        count = payload['split_sizes']
+    rmse = {arm: groups[arm]['continuous_subsets']['global']['rmse'] for arm in 'ABC'}
+    return {'subject_id': subject, 'status': 'ok', 'model_sha256': model_ids, 'groups': groups,
+            'improvements': {arm: rmse['A'] - rmse[arm] for arm in 'BC'},
+            'split_sizes': dict(zip(('train', 'validation', 'evaluation'), count.tolist())),
+            'figures': figures, 'predictions': str(path), 'recovered_from_predictions': True}
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Exp3 DB3 angle estimation")
-    parser.add_argument(
-        "--groups",
-        default="A,B",
-        help="Comma-separated groups to run. A=raw, B=healthy-prior enhanced.",
-    )
+    from data.waveform import ANGLE_FS, FS, STRIDE, WAVEFORM_FORMAT, WINDOW, ChannelStats, angle_inputs, fit_channel_stats
+    from utils.kinematic_target import select_key10_angles
+    from utils.waveform_db3 import abc_waveforms, load_abc_models, prepare_db3_exercise
+    from utils.waveform_downstream import frozen_development_subject, paired_summary, split_windows
+    from utils.waveform_pipeline import setup_waveform
+
+    parser = argparse.ArgumentParser(description='DB3 continuous Key10 A/B/C on the 2 kHz protocol')
+    parser.add_argument('--smoke', action='store_true')
+    parser.add_argument('--final', action='store_true', help='Use locked protocol and evaluate repetitions 2/5')
     args = parser.parse_args()
-    run_groups = {g.strip().upper() for g in args.groups.split(",") if g.strip()}
-    valid_groups = {"A", "B"}
-    unknown = run_groups - valid_groups
-    if unknown:
-        raise ValueError(f"未知的实验三分组：{sorted(unknown)}")
-
-    cfg = load_yaml_config(PROJECT_ROOT)
+    if args.final and args.smoke:
+        parser.error('--final and --smoke are mutually exclusive')
+    cfg, run, loader, device = setup_waveform(PROJECT_ROOT, smoke=args.smoke)
+    options = cfg['exp3_regressor']
+    decimation = FS // ANGLE_FS
     config = flatten_pipeline_config(cfg)
-    device = config["device"]
-    if int(config["regressor_n_angle_channels"]) != KEY10_DIM:
-        raise ValueError(f"config.yaml 必须为 Key10 将 exp3_regressor.n_angle_channels 设为 {KEY10_DIM}。")
-    set_seed(int(config["regressor_random_seed"]))
+    config.update(window_size=WINDOW // decimation, stride=STRIDE // decimation, target_fs=ANGLE_FS)
+    if args.smoke:
+        config['regressor_num_epochs'] = 1
+        config['regressor_viz_trials_per_subject'] = 1
+    scope = 'final' if args.final else 'development'
+    output = run / '03_angle_prediction'
+    report_path = output / 'metrics' / f'waveform_{scope}.json'
+    report = _load_existing_report(report_path) or {'format': WAVEFORM_FORMAT, 'scope': scope,
+                                                  'smoke': args.smoke, 'subjects': [],
+                                                  'angle_target': key10_target_metadata()}
+    if report.get('format') != WAVEFORM_FORMAT or report.get('scope') != scope:
+        raise ValueError(f'Incompatible angle report: {report_path}')
 
-    data_loader = NinaProDataLoader(config["db2_path"], config["db3_path"], fs=config["orig_fs"])
-    out_path = Path(config["regressor_results_path"])
-    run_dir = Path(config.get("run_dir", out_path.parent.parent.parent))
-    ckpt_dir = run_dir / "03_angle_prediction" / "checkpoints"
-    viz_dir = run_dir / "03_angle_prediction" / "figures" / "comparison"
-    summary_dir = run_dir / "03_angle_prediction" / "figures" / "summary"
-    pred_dir = run_dir / "03_angle_prediction" / "predictions"
-    log_path = run_dir / "03_angle_prediction" / "logs" / "exp3_subjects.log"
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
-    viz_dir.mkdir(parents=True, exist_ok=True)
-    summary_dir.mkdir(parents=True, exist_ok=True)
-    pred_dir.mkdir(parents=True, exist_ok=True)
+    def save_progress(result):
+        _upsert_subject(report, result)
+        report['paired_summary'] = paired_summary(
+            report['subjects'], lambda row, group: row['groups'][group]['continuous_subsets']['global']['rmse'],
+            higher_is_better=False)
+        save_json(report_path, report)
 
-    print_tcn_info(config, n_emg_channels=config.get("n_channels", 12), fs=config["target_fs"])
-
-    healthy_mcia, healthy_ckpt = (None, None)
-    if "B" in run_groups:
-        healthy_mcia, healthy_ckpt = load_healthy_prior_mcia(config, device)
-
-    report = _load_existing_report(out_path) or _base_report()
-    start_ts = time.time()
-    print("=" * 70)
-    print("[实验三] DB3 固定 Key10 代理角度估计——A/B 组")
-    print("=" * 70)
-    _log(log_path, f"Exp3 started | groups={','.join(sorted(run_groups))} | run_dir={run_dir}")
-
-    for subject_id in config["regressor_db3_subjects"]:
-        print(f"\n--- DB3 S{subject_id:02d} ---")
-        npz_path = pred_dir / f"S{subject_id:02d}_angle_predictions.npz"
-        if npz_path.exists():
-            with np.load(npz_path) as existing_prediction:
-                assert_key10_prediction_payload(existing_prediction, str(npz_path))
-        if _prediction_has_groups(npz_path, run_groups):
-            try:
-                _log(log_path, f"S{subject_id:02d} prediction exists; loading split diagnostics")
-                raw_emg, angle, _, reps, window_meta = prepare_kinematics_data(
-                    data_loader, [subject_id], config,
-                    exercises=config["regressor_exercises"], db="db3", return_metadata=True,
-                )
-                train_idx, val_idx, test_idx = make_rep_split(reps)
-                dynamic_diag = dynamic_split_diagnostics(
-                    angle,
-                    {"train": train_idx, "val": val_idx, "test": test_idx},
-                    config,
-                )
-                print_dynamic_diagnostics(subject_id, dynamic_diag)
-                dynamic_test_indices = np.asarray(
-                    dynamic_diag.get("splits", {}).get("test", {}).get("dynamic_indices", []),
-                    dtype=np.int64,
-                )
-                window_starts = _exercise_separated_window_starts(window_meta, config)
-                test_window_starts = window_starts[test_idx]
-                subj_result, _, resume_updates = _subject_from_prediction(
-                    subject_id, npz_path, run_groups, dynamic_test_indices=dynamic_test_indices,
-                    test_window_starts=test_window_starts, config=config,
-                )
-                if resume_updates:
-                    _merge_prediction_payload(npz_path, resume_updates)
-                    _log(log_path, f"S{subject_id:02d} continuous-output fields rebuilt from prediction")
-                subj_result["n_segments"] = int(len(angle))
-                subj_result["split_sizes"] = {
-                    "train": len(train_idx), "val": len(val_idx), "test": len(test_idx),
-                }
-                subj_result["split_method"] = "rep_based"
-                subj_result["dynamic_angle_coverage"] = dynamic_diag
-                subj_result["low_dynamic_train_coverage"] = bool(dynamic_diag.get("low_dynamic_train_coverage"))
-                if dynamic_diag.get("low_dynamic_train_coverage"):
-                    _log(log_path, f"WARNING S{subject_id:02d} low_dynamic_train_coverage=true")
-                with np.load(npz_path) as data:
-                    required_continuous = {
-                        "continuous_target", "continuous_time_indices",
-                        "continuous_overlap_counts", "continuous_dynamic_mask",
-                        *(f"pred_{grp}_continuous" for grp in ("A", "B")),
-                    }
-                    missing_continuous = sorted(required_continuous.difference(data.files))
-                    if missing_continuous:
-                        raise RuntimeError(
-                            f"S{subject_id:02d} has no complete continuous plotting payload: {missing_continuous}"
-                        )
-                    group_preds_for_fig = {
-                        grp: np.asarray(data[f"pred_{grp}_continuous"]) for grp in ("A", "B")
-                    }
-                    continuous_target_for_fig = np.asarray(data["continuous_target"])
-                    continuous_times_for_fig = np.asarray(data["continuous_time_indices"], dtype=np.int64)
-                    continuous_overlaps_for_fig = np.asarray(data["continuous_overlap_counts"], dtype=np.int16)
-                    continuous_dynamic_for_fig = np.asarray(data["continuous_dynamic_mask"], dtype=bool)
-                figure_files, selection = save_abc_comparison_figures(
-                    subject_id, group_preds_for_fig, continuous_target_for_fig,
-                    continuous_times_for_fig, continuous_overlaps_for_fig, continuous_dynamic_for_fig, viz_dir,
-                    n_trials=int(config.get("regressor_viz_trials_per_subject", 2)), config=config,
-                    low_dynamic_coverage=bool(dynamic_diag.get("low_dynamic_train_coverage")),
-                    output_postprocess=continuous_output_label(config),
-                    return_selection=True,
-                )
-                subj_result["abc_comparison_figures"] = figure_files
-                subj_result["abc_visualization_selection"] = selection
-                print(
-                    f"  A/B visualization selected S{subject_id:02d}: "
-                    f"indices={selection.get('selected_indices', [])} "
-                    f"scores={[round(float(s), 4) for s in selection.get('selected_scores', [])]}"
-                )
-                _upsert_subject(report, subj_result)
-                _save_progress(out_path, report, start_ts)
-                _log(log_path, f"S{subject_id:02d} resumed prediction and regenerated {len(figure_files)} continuous-output figures")
-                continue
-            except Exception as exc:
-                _log(log_path, f"WARNING S{subject_id:02d} failed prediction-resume diagnostics: {repr(exc)}")
-                subj_result, _, _ = _subject_from_prediction(subject_id, npz_path, run_groups)
-                _upsert_subject(report, subj_result)
-                _save_progress(out_path, report, start_ts)
-                _log(log_path, f"S{subject_id:02d} skipped training: complete prediction exists at {npz_path}")
-                continue
-
-        try:
-            _log(log_path, f"S{subject_id:02d} start")
-            raw_emg, angle, _, reps, window_meta = prepare_kinematics_data(
-                data_loader, [subject_id], config,
-                exercises=config["regressor_exercises"], db="db3", return_metadata=True,
-            )
-            train_idx, val_idx, test_idx = make_rep_split(reps)
-            print(f"  repetition 划分：训练={len(train_idx)}，验证={len(val_idx)}，测试={len(test_idx)} "
-                  "(train=[1,3,4] val=[6] test=[2,5])")
-            dynamic_diag = dynamic_split_diagnostics(
-                angle,
-                {"train": train_idx, "val": val_idx, "test": test_idx},
-                config,
-            )
-            print_dynamic_diagnostics(subject_id, dynamic_diag)
-            if dynamic_diag.get("low_dynamic_train_coverage"):
-                _log(log_path, f"WARNING S{subject_id:02d} low_dynamic_train_coverage=true")
-
-            subj_result = {
-                "subject_id": subject_id,
-                "status": "ok",
-                "angle_target": key10_target_metadata(),
-                "n_segments": int(len(raw_emg)),
-                "split_sizes": {"train": len(train_idx), "val": len(val_idx), "test": len(test_idx)},
-                "split_method": "fixed_repetition_1_3_4__6__2_5",
-                "source_exercises": [int(value) for value in config["regressor_exercises"]],
-                "normalization": window_meta["normalization"],
-                "window_policy": window_meta["window_policy"],
-                "dynamic_angle_coverage": dynamic_diag,
-                "low_dynamic_train_coverage": bool(dynamic_diag.get("low_dynamic_train_coverage")),
-                "groups": {},
-            }
-            subj_subsets = {}
-            group_preds = {}
-            group_calibrations = {}
-            group_target = None
-
-            quality_masks = window_meta["quality_mask"]
-            subj_result["quality_mask_rule"] = "hard_zero_train_1_3_4_or_wcbqd_v0.1_plateau_lowenergy_lowfreqburst"
-            subj_result["quality_mask_ratio"] = float((quality_masks < 0.5).mean())
-
-            if "A" in run_groups:
-                _log(log_path, f"S{subject_id:02d} group A train")
-                subj_ckpt_dir = ckpt_dir / f"S{subject_id:02d}"
-                subj_ckpt_dir.mkdir(parents=True, exist_ok=True)
-                result_A, subs_A, pred_A, tgt_A, calibration_A = evaluate_group(
-                    "A", raw_emg, angle, train_idx, val_idx, test_idx, config, device,
-                    subj_ckpt_dir / "tcn_A_raw_best.pth",
-                    subject_id,
-                    {"input": "raw"},
-                )
-                subj_result["groups"]["A"] = result_A
-                subj_subsets["A"] = subs_A
-                group_preds["A"] = pred_A
-                if calibration_A is not None:
-                    group_calibrations["A"] = calibration_A
-                group_target = tgt_A
-                _log(log_path, f"S{subject_id:02d} group A done")
-
-            if "B" in run_groups and healthy_mcia is not None:
-                _log(log_path, f"S{subject_id:02d} group B enhance/train")
-                print("  正在用健康先验 MCIA 构建 B 组增强 EMG...")
-                enh_B = make_enhanced_pool(
-                    healthy_mcia, raw_emg, train_idx, val_idx, test_idx, quality_masks, device, domain_id=None,
-                    patch_size=int(config["patch_size"]),
-                )
-                subj_ckpt_dir = ckpt_dir / f"S{subject_id:02d}"
-                subj_ckpt_dir.mkdir(parents=True, exist_ok=True)
-                result_B, subs_B, pred_B, tgt_B, calibration_B = evaluate_group(
-                    "B", enh_B, angle, train_idx, val_idx, test_idx, config, device,
-                    subj_ckpt_dir / "tcn_B_healthy_prior_best.pth",
-                    subject_id,
-                    {"input": "enhanced", "mcia_source": "healthy_prior", "mcia_checkpoint": str(healthy_ckpt),
-                     "mcia_domain_id": None, "mcia_adapters_loaded": False},
-                )
-                subj_result["groups"]["B"] = result_B
-                subj_subsets["B"] = subs_B
-                group_preds["B"] = pred_B
-                if calibration_B is not None:
-                    group_calibrations["B"] = calibration_B
-                if group_target is None:
-                    group_target = tgt_B
-                _log(log_path, f"S{subject_id:02d} group B done")
-
-            dynamic_test_indices = np.asarray(
-                dynamic_diag.get("splits", {}).get("test", {}).get("dynamic_indices", []),
-                dtype=np.int64,
-            )
-            dynamic_test_scores = None
-            if group_target is not None:
-                dynamic_test_scores = compute_dynamic_angle_scores(
-                    group_target, str(config.get("regressor_dynamic_score", "global_max_ptp"))
-                )
-            if group_target is not None and len(dynamic_test_indices) > 0:
-                for grp, pred in group_preds.items():
-                    if grp in subj_result["groups"]:
-                        subj_result["groups"][grp]["dynamic_subsets"] = evaluate_subsets(
-                            pred[dynamic_test_indices], group_target[dynamic_test_indices]
-                        )
-            elif group_target is not None:
-                for grp in group_preds:
-                    if grp in subj_result["groups"]:
-                        subj_result["groups"][grp]["dynamic_subsets"] = {}
-
-            continuous_output = None
-            continuous_plot_payload = None
-            pred_payload = {
-                **key10_prediction_metadata(),
-                "angle_data_schema": np.asarray("e1_e2_exercise_separated_train_only_normalization_v1"),
-                "source_exercises": np.asarray(config["regressor_exercises"], dtype=np.int16),
-                "target": group_target,
-            }
-            if group_target is not None:
-                window_starts = _exercise_separated_window_starts(window_meta, config)
-                test_window_starts = window_starts[test_idx]
-                continuous_output = _continuous_output_from_groups(
-                    group_preds, group_target, test_window_starts, dynamic_test_indices, config,
-                    group_calibrations=group_calibrations,
-                )
-                if continuous_output.get("enabled"):
-                    continuous_plot_payload = continuous_output["payload"]
-                    for grp, details in continuous_output["group_results"].items():
-                        if grp in subj_result["groups"]:
-                            subj_result["groups"][grp].update(details)
-                    subj_result["continuous_output"] = continuous_output["settings"]
-                    pred_payload.update(continuous_output["payload"])
-                pred_payload["dynamic_test_indices"] = dynamic_test_indices
-                pred_payload["dynamic_test_scores"] = dynamic_test_scores
-            for grp, pred in group_preds.items():
-                pred_payload[f"pred_{grp}"] = pred
-            if group_target is not None:
-                np.savez(npz_path, **pred_payload)
-                _log(log_path, f"S{subject_id:02d} prediction saved: {npz_path}")
-            figure_files = []
-            subj_result["prediction_file"] = str(npz_path)
-            subj_result["abc_comparison_figures"] = figure_files
-            _upsert_subject(report, subj_result)
-            _save_progress(out_path, report, start_ts)
-
-            if group_target is not None:
-                try:
-                    if continuous_plot_payload is None:
-                        raise RuntimeError("生成 1280 点 A/B 图需要连续输出")
-                    figure_files, selection = save_abc_comparison_figures(
-                        subject_id,
-                        {grp: continuous_plot_payload[f"pred_{grp}_continuous"] for grp in ("A", "B")},
-                        continuous_plot_payload["continuous_target"],
-                        continuous_plot_payload["continuous_time_indices"],
-                        continuous_plot_payload["continuous_overlap_counts"],
-                        continuous_plot_payload["continuous_dynamic_mask"],
-                        viz_dir,
-                        n_trials=int(config.get("regressor_viz_trials_per_subject", 2)),
-                        config=config,
-                        low_dynamic_coverage=bool(dynamic_diag.get("low_dynamic_train_coverage")),
-                        output_postprocess=continuous_output_label(config),
-                        return_selection=True,
-                    )
-                    subj_result["abc_comparison_figures"] = figure_files
-                    subj_result["abc_visualization_selection"] = selection
-                    print(
-                        f"  A/B visualization selected S{subject_id:02d}: "
-                        f"indices={selection.get('selected_indices', [])} "
-                        f"scores={[round(float(s), 4) for s in selection.get('selected_scores', [])]}"
-                    )
-                    _upsert_subject(report, subj_result)
-                    _save_progress(out_path, report, start_ts)
-                    _log(log_path, f"S{subject_id:02d} A/B anatomy figures saved: {len(figure_files)}")
-                except Exception as fig_exc:
-                    _log(log_path, f"WARNING S{subject_id:02d} A/B anatomy figures skipped: {fig_exc}")
-            _log(log_path, f"S{subject_id:02d} done")
-
-        except Exception as exc:
-            tb = traceback.format_exc()
-            print(tb)
-            failed = {
-                "subject_id": subject_id,
-                "status": "failed",
-                "reason": repr(exc),
-                "traceback": tb,
-            }
-            _upsert_subject(report, failed)
-            _save_progress(out_path, report, start_ts)
-            _log(log_path, f"S{subject_id:02d} failed: {repr(exc)}")
-            with open(log_path, "a", encoding="utf-8", errors="replace") as f:
-                f.write(tb + "\n")
+    for subject in options['db3_subjects'][:1] if args.smoke else options['db3_subjects']:
+        if any(row['subject_id'] == subject and row['status'] == 'ok' for row in report['subjects']):
             continue
+        result = {'subject_id': subject, 'status': 'failed'}
+        try:
+            models, stats, model_ids = load_abc_models(cfg, run, device, subject, smoke=args.smoke)
+            result['model_sha256'] = model_ids
+            prediction_path = output / 'predictions' / f'S{subject:02d}_waveform_{scope}.npz'
+            if prediction_path.is_file():
+                result = recover_waveform_angle(prediction_path, subject, output, scope, config, model_ids)
+                save_progress(result)
+                print(f'S{subject:02d}: restored angle metrics from {prediction_path.name}', flush=True)
+                continue
+            dev_artifacts = None
+            if args.final:
+                frozen_development_subject(output, subject, model_ids)
+                dev_path = output / 'predictions' / f'S{subject:02d}_waveform_development.npz'
+                with np.load(dev_path, allow_pickle=False) as data:
+                    assert_key10_prediction_payload(data, str(dev_path))
+                    if str(data['format']) != WAVEFORM_FORMAT:
+                        raise ValueError(f'Invalid frozen angle statistics: {dev_path}')
+                    keys = ['glove_min', 'glove_scale']
+                    for arm in 'ABC':
+                        keys.extend((f'{arm}_mean', f'{arm}_std', f'continuous_calibration_{arm}_gain',
+                                     f'continuous_calibration_{arm}_bias'))
+                    dev_artifacts = {key: data[key] for key in keys}
+            inputs = {group: [] for group in 'ABC'}
+            glove, reps, starts, raw_starts, exercise_ids = [], [], [], [], []
+            offset = 0
+            exercises = options['exercises'][:1] if args.smoke else options['exercises']
+            for exercise in exercises:
+                rec, quality = prepare_db3_exercise(cfg, loader, subject, exercise, glove=True,
+                                                    smoke=args.smoke, final=args.final, run=run)
+                waves = abc_waveforms(run, subject, exercise, rec, quality, models, stats, model_ids,
+                                      device, smoke=args.smoke, final=args.final)
+                windows = rec.transitions
+                for group, wave in waves.items():
+                    x, samples = angle_inputs(rec, wave)
+                    inputs[group].append(x)
+                glove.append(select_key10_angles(rec.glove[samples]))
+                reps.append(windows.repetitions)
+                raw_starts.append(windows.starts)
+                exercise_ids.append(np.full(len(windows.starts), exercise))
+                starts.append(offset + windows.starts // decimation)
+                offset += len(rec.raw) // decimation + WINDOW
+            rep = np.concatenate(reps)
+            tr, va, evaluate = split_windows(rep, final=args.final)
+            y = np.concatenate(glove)
+            if not np.isfinite(y).all():
+                raise ValueError('Nonfinite synchronized Key10 labels')
+            if dev_artifacts is None:
+                ymin = y[tr].min(axis=(0, 1))
+                yscale = np.maximum(y[tr].max(axis=(0, 1)) - ymin, 1e-8)
+            else:
+                ymin, yscale = dev_artifacts['glove_min'], dev_artifacts['glove_scale']
+            y = (y - ymin) / yscale
+            predictions, calibrations, groups = {}, {}, {}
+            payload = {**key10_prediction_metadata(), 'format': np.asarray(WAVEFORM_FORMAT),
+                       'target': y[evaluate], 'window_start_2khz': np.concatenate(raw_starts)[evaluate],
+                       'exercise': np.concatenate(exercise_ids)[evaluate], 'repetition': rep[evaluate],
+                       'glove_min': ymin, 'glove_scale': yscale,
+                       'split_sizes': np.asarray([len(tr), len(va), len(evaluate)]),
+                       **{f'{arm}_checkpoint_sha256': np.asarray(digest) for arm, digest in model_ids.items()}}
+            for group, blocks in inputs.items():
+                emg = np.concatenate(blocks)
+                if not np.isfinite(emg).all():
+                    raise ValueError(f'Nonfinite angle input for group {group}')
+                if dev_artifacts is None:
+                    group_stats = fit_channel_stats([emg[tr]])
+                    set_seed(options['random_seed'])
+                    ckpt = output / 'checkpoints' / f'S{subject:02d}_{group}_waveform_development.pt'
+                    groups[group], _, pred, _, calibrations[group] = evaluate_group(
+                        group, group_stats.standardize(emg), y, tr, va, evaluate, config, device, ckpt, subject)
+                else:
+                    group_stats = ChannelStats(dev_artifacts[f'{group}_mean'], dev_artifacts[f'{group}_std'])
+                    ckpt = output / 'checkpoints' / f'S{subject:02d}_{group}_waveform_development.pt'
+                    model = build_tcn(config, 12, device)
+                    model.load_state_dict(torch.load(ckpt, map_location=device, weights_only=True))
+                    pred, _ = predict_on_set(model, group_stats.standardize(emg), y, evaluate, config, device)
+                    gain = dev_artifacts[f'continuous_calibration_{group}_gain']
+                    calibrations[group] = {'gain': gain, 'bias': dev_artifacts[f'continuous_calibration_{group}_bias'],
+                                           'fit_scope': 'validation_predictions_only', 'gain_min': float(gain.min()),
+                                           'gain_median': float(np.median(gain)), 'gain_max': float(gain.max())}
+                    groups[group] = {'subsets': evaluate_subsets(pred, y[evaluate]), 'checkpoint': str(ckpt)}
+                payload[f'{group}_mean'], payload[f'{group}_std'] = group_stats.mean, group_stats.std
+                predictions[group] = pred
+                payload[f'pred_{group}'] = pred
+            continuous = _continuous_output_from_groups(predictions, y[evaluate], np.concatenate(starts)[evaluate],
+                                                         np.arange(len(evaluate)), config, calibrations)
+            payload.update(continuous['payload'])
+            for group, row in continuous['group_results'].items():
+                groups[group].update(row)
+            np.savez_compressed(prediction_path, **payload)
+            figures = waveform_angle_figures(subject, payload, output, scope, config)
+            values = {group: groups[group]['continuous_subsets']['global']['rmse'] for group in 'ABC'}
+            result.update(status='ok', groups=groups, figures=figures, predictions=str(prediction_path),
+                          improvements={group: values['A'] - values[group] for group in 'BC'},
+                          split_sizes={'train': len(tr), 'validation': len(va), 'evaluation': len(evaluate)})
+        except Exception as exc:
+            result['reason'] = str(exc)
+            print(f'S{subject:02d}: {exc}', flush=True)
+        save_progress(result)
+    if any(row['status'] != 'ok' for row in report['subjects']):
+        raise RuntimeError(f'Angle evaluation has failed subjects. See {report_path}')
 
-    _save_progress(out_path, report, start_ts)
-    print(f"\n报告已保存至：{out_path}")
-    all_subj_results = _subsets_from_report(report)
-    aggregate_and_print_summary(all_subj_results, groups=tuple(sorted(run_groups)))
-    aggregate_continuous_summary(report, groups=tuple(sorted(run_groups)))
-    print_dynamic_compact_summary(report)
-    failures = [s for s in report.get("subjects", []) if s.get("status") == "failed"]
-    if failures:
-        raise RuntimeError(f"实验三结束，但以下被试运行失败：{[s['subject_id'] for s in failures]}")
 
 if __name__ == "__main__":
     main()

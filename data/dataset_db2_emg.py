@@ -104,6 +104,8 @@ def prepare_data_db2(data_loader, subject_ids, config, exercises=[1]):
     """
     DB2 专用预处理流水线
 
+    Legacy 200 Hz preparation for historical runs. The waveform entry uses data.waveform.
+
     流程：原始 EMG（2000 Hz）-> 带通滤波 -> 整流 -> 包络提取 -> μ-law 压缩
           -> 下采样 -> 归一化 -> 分段
 

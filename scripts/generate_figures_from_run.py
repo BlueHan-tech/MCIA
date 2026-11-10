@@ -31,6 +31,7 @@ def _load_script_module(name: str, rel_path: str):
     spec = importlib.util.spec_from_file_location(name, PROJECT_ROOT / rel_path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
+    sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -42,7 +43,8 @@ def latest_run_dir(output_root: Path) -> Path | None:
     run_root = output_root / "run"
     if not run_root.exists():
         return None
-    runs = sorted([p for p in run_root.glob("run_*") if p.is_dir()], key=lambda p: p.stat().st_mtime)
+    runs = sorted([p for p in run_root.glob('run_*') if (p / '00_config' / 'waveform.json').is_file()],
+                  key=lambda p: p.stat().st_mtime)
     return runs[-1] if runs else None
 
 
@@ -524,15 +526,54 @@ def regenerate_exp3_abc_figures(run_dir: Path, config: dict) -> int:
     return count
 
 
+def regenerate_waveform_figures(run, config, scope):
+    from data.waveform import ANGLE_FS, WAVEFORM_FORMAT
+    from utils.waveform_pipeline import plot_waveform_validation_examples
+
+    config['target_fs'] = ANGLE_FS
+    if json.loads((run / '00_config' / 'waveform.json').read_text(encoding='utf-8'))['smoke']:
+        config['regressor_viz_trials_per_subject'] = 1
+    angle = run / '03_angle_prediction'
+    gesture = run / '04_gesture_recognition'
+    exp5 = _load_script_module('waveform_gesture_figures', 'scripts/05_eval_db3_gesture_raw_vs_augmented.py')
+    count = len(plot_waveform_validation_examples(run / '01_db2_completion'))
+    for path in sorted((angle / 'predictions').glob(f'S*_waveform_{scope}.npz')):
+        sid = int(path.name[1:3])
+        with np.load(path, allow_pickle=False) as data:
+            exp3_figs.assert_key10_prediction_payload(data, str(path))
+            if str(data['format']) != WAVEFORM_FORMAT:
+                raise ValueError(f'Incompatible waveform predictions: {path}')
+            count += len(exp3_figs.waveform_angle_figures(sid, data, angle, scope, config))
+    report_path = gesture / 'metrics' / f'waveform_{scope}.json'
+    report = json.loads(report_path.read_text(encoding='utf-8'))
+    if report.get('format') != WAVEFORM_FORMAT:
+        raise ValueError(f'Incompatible gesture report: {report_path}')
+    for row in report['subjects']:
+        if row['status'] != 'ok':
+            continue
+        sid = row['subject_id']
+        for arm, metrics in row['groups'].items():
+            path = gesture / 'figures' / scope / f'S{sid:02d}_{arm}_confusion.png'
+            path.parent.mkdir(parents=True, exist_ok=True)
+            exp5.save_confusion_plot(np.asarray(metrics['window_metrics']['confusion_matrix']),
+                                     list(range(1, 50)), f'S{sid:02d} {arm} {scope}', path)
+            count += 1
+    print(f'Regenerated {count} waveform figures', flush=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Regenerate current DB2 quantitative figures and anatomy A/B angle figures from an existing run."
+        description='Regenerate 2 kHz MCIA figures without training.'
     )
-    parser.parse_args()
+    parser.add_argument('--final', action='store_true')
+    parser.add_argument('--legacy', action='store_true', help='Read a historical 200 Hz run selected by MCIA_RUN_DIR')
+    args = parser.parse_args()
 
     if os.environ.get("MCIA_RUN_DIR"):
         run_dir = Path(os.environ["MCIA_RUN_DIR"])
     else:
+        if args.legacy:
+            parser.error('--legacy requires an explicit MCIA_RUN_DIR')
         output_root = PROJECT_ROOT / "outputs"
         run_dir = latest_run_dir(output_root)
         if run_dir is None:
@@ -542,6 +583,12 @@ def main() -> None:
             )
     os.environ["MCIA_RUN_DIR"] = str(run_dir)
     config = load_config_for_run(run_dir)
+    waveform = (run_dir / '00_config' / 'waveform.json').is_file()
+    if waveform and not args.legacy:
+        regenerate_waveform_figures(run_dir, config, 'final' if args.final else 'development')
+        return
+    if waveform or not args.legacy or args.final:
+        raise ValueError('Select a compatible waveform run or explicitly request a historical run with --legacy')
 
     print("=" * 80)
     print("从已有 run 生成图表")

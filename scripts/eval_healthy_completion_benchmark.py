@@ -107,7 +107,8 @@ def predict_sgmd_raw(generator: SGMDAAEGenerator, clean: np.ndarray, mask: np.nd
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Protocol §7.5 healthy completion benchmark.")
+    parser = argparse.ArgumentParser(description='Legacy 200 Hz healthy completion benchmark')
+    parser.add_argument('--legacy', action='store_true', help='Use a historical run selected by MCIA_RUN_DIR')
     parser.add_argument("--sgmd-epochs", type=int, default=None)
     parser.add_argument("--sgmd-max-train-windows", type=int, default=None)
     parser.add_argument("--skip-sgmd-training", action="store_true")
@@ -117,6 +118,10 @@ def main() -> None:
     parser.add_argument("--limit-windows-per-subject", type=int, default=0,
                         help="0 keeps all windows; any cap is an explicitly labelled development run")
     args = parser.parse_args()
+    if not args.legacy or not os.environ.get('MCIA_RUN_DIR'):
+        parser.error('The 200 Hz benchmark requires --legacy and an explicit MCIA_RUN_DIR')
+    if (Path(os.environ['MCIA_RUN_DIR']) / '00_config' / 'waveform.json').is_file():
+        parser.error('The legacy benchmark cannot write into a 2 kHz waveform run')
 
     cfg = load_yaml_config(PROJECT_ROOT)
     settings = cfg["literature_baselines"]

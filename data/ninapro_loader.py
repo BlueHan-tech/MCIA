@@ -24,6 +24,32 @@ class NinaProDataLoader:
         self.db3_path = Path(db3_path)
         self.fs = fs
 
+    def exercise_path(self, db, subject_id, exercise):
+        if db == 'db2':
+            subject_dir = self.db2_path / f'DB2_s{subject_id}'
+        elif db == 'db3':
+            subject_dir = self.db3_path / f's{subject_id}' / f'DB3_s{subject_id}'
+        else:
+            raise ValueError(f'Unknown database: {db}')
+        return subject_dir / f'S{subject_id}_E{exercise}_A1.mat'
+
+    def load_exercise(self, db, subject_id, exercise, *, with_glove=False):
+        """Load one exercise on its original sample grid, without concatenation."""
+        path = self.exercise_path(db, subject_id, exercise)
+        fields = ['emg', 'restimulus', 'rerepetition']
+        if with_glove:
+            fields.append('glove')
+        mat = sio.loadmat(path, variable_names=fields)
+        emg = np.asarray(mat['emg'], dtype=np.float32)
+        labels = mat['restimulus'].reshape(-1)
+        repetitions = mat['rerepetition'].reshape(-1)
+        if emg.shape != (len(labels), 12) or repetitions.shape != labels.shape:
+            raise ValueError(f'{path}: unaligned EMG, stimulus or repetition')
+        glove = np.asarray(mat['glove'], dtype=np.float32) if with_glove else None
+        if glove is not None and glove.shape != (len(labels), 22):
+            raise ValueError(f'{path}: unaligned glove')
+        return emg, labels, repetitions, glove
+
     def load_db2_subject(self, subject_id, exercises=[1, 2, 3]):
         """加载 DB2 健康被试数据"""
         subject_dir = self.db2_path / f"DB2_s{subject_id}"

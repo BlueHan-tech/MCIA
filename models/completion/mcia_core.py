@@ -427,6 +427,14 @@ class MCIA(nn.Module):
         return (loss * mask_missing).sum() / mask_missing.sum().clamp_min(1.0)
 
 
+class WaveformMCIA(MCIA):
+    """Signed output for the 2 kHz protocol."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.pred_head = self.pred_head[0]
+
+
 class MCIA_Wrapper:
     """MCIA 训练/推理封装器，观测区执行 copy-back。"""
 
