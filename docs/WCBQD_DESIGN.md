@@ -65,5 +65,5 @@ WC-BQD v0.1 于 2026-09-10 在旧链路中取代 Grönlund (2005) MQP 层，保�
 
 - `utils/db3_quality_mask.py` 第二层由 MQP 替换为 WC-BQD；函数签名与返回契约不变，消费方（`dataset_kinematics`、`dataset_db3_emg`、`scripts/05`）零改动；元数据字段更新（`mask_rule` 含版本号 `wcbqd_v0.1`，常量、逐秒警报计数落盘）。
 - 掩码语义变化：补全输入的缺失比例大幅下降（DB3 平均 18.6%→约 4.6%；S05 窗口级 13.1%→0.3%）。**新旧 run 的 B 组产物不可直接混比**。
-- MQP 函数（`mqp_probability`/`_mqp_flags`）从主模块删除；当日两个冻结校准脚本（`calibrate_mqp_threshold_healthy_db2.py`、`decompose_mqp_flags_healthy.py`）因此不可重跑，保留为实验记录；`reproduce_gronlund_db3_quality.py` 为自包含实现，不受影响。
+- MQP 函数（`mqp_probability`/`_mqp_flags`）已从主模块删除。当日校准与分解脚本及自包含的 Grönlund 对照实现现已列入[历史归档](../research/README.md#首批历史归档)，用于追溯原实验。
 - 下游全量证据尚未产生：C4 为 S05 单被试、40-epoch 开发预算；正式 run 后以主实验口径复核。
