@@ -1,6 +1,6 @@
 # WC-BQD：通道内基线质量检测器设计文档
 
-状态：**已采纳**（2026-09-10，用户确认），替换 `utils/db3_quality_mask.py` 中的 Grönlund (2005) MQP 层；硬零层保留。本文记录动机、设计、文献支撑、验证证据与采纳影响。验证产物：`<run>/06_diagnostics/wcbqd_validation_20260909/`。
+WC-BQD v0.1 于 2026-09-10 在旧链路中取代 Grönlund (2005) MQP 层，保留硬零层。新链路首版掩码见 [D-035](COLLABORATION.md) 和[实验协议 §4](EXPERIMENT_PROTOCOL.md#4-缺失定义与补全交付)。本文记录旧方案的设计与验证，验证产物位于 `<run>/06_diagnostics/wcbqd_validation_20260909/`。
 
 ## 1. 动机：MQP 在功能异质小阵列上的失效
 
