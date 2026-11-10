@@ -187,11 +187,11 @@ def healthy_checkpoint(run):
 
 
 def plot_waveform_validation_examples(output):
-    from utils.visualization import plot_completion_panel
+    from utils.visualization import plot_completion_panel, waveform_plot_fonts
 
     path = output / 'metrics' / 'waveform_validation_examples.npz'
     figures = []
-    with np.load(path, allow_pickle=False) as data:
+    with np.load(path, allow_pickle=False) as data, waveform_plot_fonts():
         if str(data['format']) != WAVEFORM_FORMAT:
             raise ValueError(f'Incompatible waveform examples: {path}')
         for i, (clean, completed, keep) in enumerate(zip(data['clean'], data['completed'], data['keep'])):

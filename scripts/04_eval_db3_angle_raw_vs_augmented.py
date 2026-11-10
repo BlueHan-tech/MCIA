@@ -1118,12 +1118,15 @@ def _subsets_from_report(report: dict) -> list[dict]:
 
 
 def waveform_angle_figures(subject, payload, output, scope, config):
-    return save_abc_comparison_figures(
-        subject, {group: payload[f'pred_{group}_continuous'] for group in 'ABC'},
-        payload['continuous_target'], payload['continuous_time_indices'],
-        payload['continuous_overlap_counts'], payload['continuous_dynamic_mask'],
-        output / 'figures' / 'comparison' / scope, config=config, scope=scope,
-        output_postprocess=continuous_output_label(config))
+    from utils.visualization import waveform_plot_fonts
+
+    with waveform_plot_fonts():
+        return save_abc_comparison_figures(
+            subject, {group: payload[f'pred_{group}_continuous'] for group in 'ABC'},
+            payload['continuous_target'], payload['continuous_time_indices'],
+            payload['continuous_overlap_counts'], payload['continuous_dynamic_mask'],
+            output / 'figures' / 'comparison' / scope, config=config, scope=scope,
+            output_postprocess=continuous_output_label(config))
 
 
 def assert_waveform_angle_payload(payload, context, *, smoke):

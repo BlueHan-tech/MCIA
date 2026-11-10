@@ -31,11 +31,17 @@ from utils.windows_conda_path import ensure_current_env_dll_path
 ensure_current_env_dll_path()
 
 import matplotlib.pyplot as plt
-
-import numpy as np
+from matplotlib import font_manager
 from matplotlib.gridspec import GridSpec
+import numpy as np
 
 
+def waveform_plot_fonts():
+    """Keep Chinese annotations legible without changing global plotting defaults."""
+    installed = {font.name for font in font_manager.fontManager.ttflist}
+    candidates = ('Microsoft YaHei', 'Noto Sans SC', 'Noto Sans CJK SC', 'SimHei')
+    families = ['DejaVu Sans', *(name for name in candidates if name in installed)]
+    return plt.rc_context({'font.family': families})
 
 # ---------------------------------------------------------------------
 # 指标工具
