@@ -527,10 +527,11 @@ def regenerate_exp3_abc_figures(run_dir: Path, config: dict) -> int:
 
 
 def regenerate_waveform_figures(run, config, scope):
-    from data.waveform import ANGLE_FS, WAVEFORM_FORMAT
+    from data.waveform import ANGLE_FS, FS, STRIDE, WAVEFORM_FORMAT, WINDOW
     from utils.waveform_pipeline import plot_waveform_validation_examples
 
-    config['target_fs'] = ANGLE_FS
+    decimation = FS // ANGLE_FS
+    config.update(target_fs=ANGLE_FS, window_size=WINDOW // decimation, stride=STRIDE // decimation)
     smoke = json.loads((run / '00_config' / 'waveform.json').read_text(encoding='utf-8'))['smoke']
     if smoke:
         config['regressor_viz_trials_per_subject'] = 1
